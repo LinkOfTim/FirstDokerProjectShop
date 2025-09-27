@@ -342,12 +342,12 @@ erDiagram
     uuid id PK
     string sku UNIQ
     string name
-    numeric price(12,2)
+    numeric price
     int stock
     bool is_active
-    string description (nullable)
-    jsonb attributes (nullable)
-    uuid template_id FK (nullable)
+    string description optional
+    jsonb attributes optional
+    uuid template_id FK optional
     timestamptz created_at
     timestamptz updated_at
   }
@@ -381,8 +381,8 @@ erDiagram
   orders {
     uuid id PK
     string user_email
-    string status  // paid | canceled
-    numeric total(12,2)
+    string status
+    numeric total
     timestamptz created_at
   }
   order_items {
@@ -391,9 +391,9 @@ erDiagram
     uuid product_id
     string sku
     string name
-    numeric price(12,2)
+    numeric price
     int qty
-    numeric subtotal(12,2)
+    numeric subtotal
   }
 ```
 
