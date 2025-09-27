@@ -302,8 +302,8 @@ flowchart LR
   AAPI <-. HS256 SECRET_KEY .-> CTAPI
   AAPI <-. HS256 SECRET_KEY .-> OAPI
 
-  OAPI -->|↓ stock| CAPI
-  OAPI -->|↑ stock (cancel)| CAPI
+  OAPI -->|stock decrease| CAPI
+  OAPI -->|stock increase cancel| CAPI
   OAPI -->|cart get/clear| CTAPI
 ```
 
