@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Заказы (админ)</h1>
+<form class="row g-2 mb-3" id="filterForm">
+  <div class="col-md-3"><input class="form-control" name="email" placeholder="Email пользователя" /></div>
+  <div class="col-md-3">
+    <select class="form-select" name="status">
+      <option value="">Все статусы</option>
+      <option value="paid">Оплачен</option>
+      <option value="canceled">Отменён</option>
+    </select>
+  </div>
+  <div class="col-md-2"><button class="btn btn-primary" type="submit">Фильтр</button></div>
+  <div id="msg" class="col-12 text-danger small"></div>
+  <hr />
+</form>
+<div id="orders"></div>
+<script>
+  async function loadAdminOrders(query='') {
+    const res = await fetch('/api/admin/orders' + (query ? ('?' + query) : ''));
+    const root = document.getElementById('orders');
+    if (!res.ok) { root.textContent = 'Ошибка загрузки'; return; }
+    const arr = await res.json();
+    if (!arr.length) { root.textContent = 'Заказы не найдены'; return; }
+    root.innerHTML = '';
+    arr.forEach(o => {
+      const el = document.createElement('div');
+      el.className = 'card mb-3';
+      const created = new Date(o.created_at).toLocaleString();
+      el.innerHTML = `
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <div><b>#${o.id}</b> — ${created}</div>
+              <div>Покупатель: <b>${o.user}</b></div>
+              <div>Статус: <span class="badge ${o.status==='canceled' ? 'text-bg-danger' : 'text-bg-success'}">${o.status}</span></div>
+            </div>
+            <div class="text-end">Итого: <b>${o.total} ₸</b>
+              ${o.status !== 'canceled' ? `<button class="btn btn-sm btn-outline-danger ms-2" data-cancel="${o.id}">Отменить</button>` : ''}
+            </div>
+          </div>
+          <div class="mt-2 small">
+            ${o.items.map(it => `${it.name} × ${it.qty} = ${it.subtotal} ₸`).join('<br/>')}
+          </div>
+        </div>`;
+      root.appendChild(el);
+    });
+  }
+  document.getElementById('filterForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const params = [];
+    if (fd.get('email')) params.push('email=' + encodeURIComponent(fd.get('email')));
+    if (fd.get('status')) params.push('status=' + encodeURIComponent(fd.get('status')));
+    await loadAdminOrders(params.join('&'));
+  });
+  document.getElementById('orders').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button[data-cancel]');
+    if (!btn) return;
+    const id = btn.getAttribute('data-cancel');
+    const res = await fetch(`/api/admin/orders/${id}/cancel`, { method: 'PATCH' });
+    if (res.ok) {
+      const f = new FormData(document.getElementById('filterForm'));
+      const params = [];
+      if (f.get('email')) params.push('email=' + encodeURIComponent(f.get('email')));
+      if (f.get('status')) params.push('status=' + encodeURIComponent(f.get('status')));
+      await loadAdminOrders(params.join('&')); 
+    } else {
+      const t = await res.text();
+      document.getElementById('msg').textContent = t;
+    }
+  });
+  loadAdminOrders();
+</script>
+{% endblock %}
+

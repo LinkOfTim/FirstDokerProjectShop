@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Корзина</h1>
+<div class="mb-2">
+  <button id="clearCart" class="btn btn-sm btn-outline-danger">Очистить корзину</button>
+  <a class="btn btn-sm btn-outline-secondary" href="/">Продолжить покупки</a>
+  <button id="checkoutBtn" class="btn btn-sm btn-success ms-2">Оформить заказ</button>
+  <span class="ms-2 text-muted">Итого: <b id="cartTotal">0 ₸</b></span>
+  <span class="ms-2 text-muted">Товаров: <b id="cartCount">0</b></span>
+  <div id="msg" class="text-danger small"></div>
+  <hr />
+</div>
+<div id="cart"></div>
+<script>
+  async function loadCart() {
+    const res = await fetch('/api/cart');
+    if (!res.ok) { document.getElementById('cart').textContent = 'Требуется вход'; return; }
+    const data = await res.json();
+    const root = document.getElementById('cart');
+    if (!data.items.length) { root.textContent = 'Корзина пуста'; return; }
+    root.innerHTML = '';
+    data.items.forEach(it => {
+      const p = it.product;
+      const el = document.createElement('div');
+      el.className = 'd-flex justify-content-between align-items-center border-bottom py-2';
+      el.innerHTML = `
+        <div><b>${p.name}</b> — ${p.price} ₸ × 
+          <div class="btn-group" role="group" aria-label="qty">
+            <button class="btn btn-sm btn-outline-secondary" data-dec="${p.id}">-</button>
+            <span class="px-2" data-qty="${p.id}">${it.qty}</span>
+            <button class="btn btn-sm btn-outline-secondary" data-inc="${p.id}">+</button>
+          </div>
+          = <b>${it.subtotal} ₸</b>
+        </div>
+        <button class="btn btn-sm btn-outline-danger" data-remove="${p.id}">Убрать</button>
+      `;
+      root.appendChild(el);
+    });
+    // update totals in page header and main navbar
+    document.getElementById('cartTotal').textContent = `${data.total.toFixed(2)} ₸`;
+    const count = data.items.reduce((n, it) => n + (it.qty || 0), 0);
+    document.getElementById('cartCount').textContent = count;
+    if (window.updateCartBadge) window.updateCartBadge();
+  }
+  document.getElementById('cart').addEventListener('click', async (e) => {
+    const removeBtn = e.target.closest('button[data-remove]');
+    const incBtn = e.target.closest('button[data-inc]');
+    const decBtn = e.target.closest('button[data-dec]');
+    if (removeBtn) {
+      const id = removeBtn.getAttribute('data-remove');
+      await fetch('/api/cart/remove', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product_id: id })
+      });
+      return loadCart();
+    }
+    if (incBtn || decBtn) {
+      const id = (incBtn || decBtn).getAttribute(incBtn ? 'data-inc' : 'data-dec');
+      const qtyEl = document.querySelector(`[data-qty="${id}"]`);
+      let qty = parseInt(qtyEl.textContent || '0', 10);
+      qty = incBtn ? qty + 1 : Math.max(0, qty - 1);
+      const r = await fetch('/api/cart/set', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product_id: id, qty })
+      });
+      if (r.ok) return loadCart();
+      try {
+        const t = await r.text();
+        document.getElementById('msg').textContent = t;
+      } catch (_) {}
+      return loadCart();
+    }
+  });
+  document.getElementById('clearCart').addEventListener('click', async () => {
+    await fetch('/api/cart/clear', { method: 'POST' });
+    if (window.updateCartBadge) window.updateCartBadge();
+    loadCart();
+  });
+  document.getElementById('checkoutBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('checkoutBtn');
+    const msg = document.getElementById('msg');
+    btn.disabled = true; msg.textContent = '';
+    try {
+      const res = await fetch('/api/order/checkout', { method: 'POST' });
+      if (res.ok) {
+        const order = await res.json();
+        if (order && order.id) {
+          window.location = `/orders/${order.id}`;
+          return;
+        }
+        window.location = '/orders';
+        return;
+      }
+      let t = await res.text();
+      try { const j = JSON.parse(t); t = j.detail || t; } catch {}
+      msg.textContent = t;
+    } catch (e) {
+      msg.textContent = 'Ошибка оформления заказа';
+    } finally {
+      btn.disabled = false;
+      if (window.updateCartBadge) window.updateCartBadge();
+      loadCart();
+    }
+  });
+  loadCart();
+ </script>
+{% endblock %}

@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Мои заказы</h1>
+<div id="orders"></div>
+<script>
+  async function loadOrders() {
+    const res = await fetch('/api/orders');
+    const root = document.getElementById('orders');
+    if (!res.ok) { root.textContent = 'Ошибка загрузки'; return; }
+    const arr = await res.json();
+    if (!arr.length) { root.textContent = 'Заказов пока нет'; return; }
+    root.innerHTML = '';
+    arr.forEach(o => {
+      const el = document.createElement('div');
+      el.className = 'card mb-3';
+      const created = new Date(o.created_at).toLocaleString();
+      el.innerHTML = `
+        <div class="card-body">
+          <div class="d-flex justify-content-between">
+            <div>
+              <div><b>Заказ #${o.id}</b> — ${created}</div>
+              <div>Статус: <span class="badge text-bg-success">${o.status}</span></div>
+            </div>
+            <div class="text-end">Итого: <b>${o.total.toFixed ? o.total.toFixed(2) : o.total} ₸</b></div>
+          </div>
+          <a class="btn btn-sm btn-outline-primary mt-2" href="/orders/${o.id}">Детали</a>
+        </div>`;
+      root.appendChild(el);
+    });
+  }
+  loadOrders();
+</script>
+{% endblock %}
+

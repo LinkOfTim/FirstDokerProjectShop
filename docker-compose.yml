@@ -1,0 +1,92 @@
+version: "3.9"
+
+services:
+  auth-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: authdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - auth_pgdata:/var/lib/postgresql/data
+
+  catalog-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: catalog
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - catalog_pgdata:/var/lib/postgresql/data
+
+  auth:
+    build: services/auth_service
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@auth-db:5432/authdb
+      SECRET_KEY: dev-secret-change-me
+      ADMIN_EMAIL: admin@example.com
+      ADMIN_PASSWORD: admin123
+    depends_on:
+      - auth-db
+
+  catalog:
+    build: services/catalog_service
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@catalog-db:5432/catalog
+      SECRET_KEY: dev-secret-change-me
+    depends_on:
+      - catalog-db
+
+  order-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: orderdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - order_pgdata:/var/lib/postgresql/data
+
+  order:
+    build: services/order_service
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@order-db:5432/orderdb
+      SECRET_KEY: dev-secret-change-me
+      CATALOG_URL: http://catalog:8000
+      CART_URL: http://cart:8000
+    depends_on:
+      - order-db
+      - catalog
+      - cart
+
+  cart-redis:
+    image: redis:7
+    command: ["redis-server", "--appendonly", "no"]
+
+  cart:
+    build: services/cart_service
+    environment:
+      REDIS_URL: redis://cart-redis:6379/0
+      SECRET_KEY: dev-secret-change-me
+    depends_on:
+      - cart-redis
+
+  gateway:
+    build: services/gateway
+    environment:
+      AUTH_URL: http://auth:8000
+      CATALOG_URL: http://catalog:8000
+      CART_URL: http://cart:8000
+      ORDER_URL: http://order:8000
+      SECRET_KEY: dev-secret-change-me
+    ports:
+      - "8000:8000"
+    depends_on:
+      - auth
+      - catalog
+      - cart
+      - order
+
+volumes:
+  auth_pgdata:
+  catalog_pgdata:
+  order_pgdata:

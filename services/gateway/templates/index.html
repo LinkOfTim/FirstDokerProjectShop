@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Товары</h1>
+<form class="row g-2 mb-3" method="get" action="/">
+  <div class="col-md-4"><input class="form-control" type="text" name="q" value="{{ request.query_params.get('q') or '' }}" placeholder="Поиск по названию или SKU" /></div>
+  <div class="col-md-2"><input class="form-control" type="number" step="0.01" name="min_price" value="{{ request.query_params.get('min_price') or '' }}" placeholder="Мин. цена" /></div>
+  <div class="col-md-2"><input class="form-control" type="number" step="0.01" name="max_price" value="{{ request.query_params.get('max_price') or '' }}" placeholder="Макс. цена" /></div>
+  <div class="col-md-2 form-check mt-2">
+    <input class="form-check-input" type="checkbox" name="is_active" value="true" {% if request.query_params.get('is_active') %}checked{% endif %} />
+    <label class="form-check-label">Только активные</label>
+  </div>
+  <div class="col-md-2"><button class="btn btn-primary" type="submit">Фильтр</button></div>
+  {% if request.query_params %}
+    <div class="col-12"><a href="/" class="small">Сбросить фильтры</a></div>
+  {% endif %}
+</form>
+<div class="row row-cols-1 row-cols-md-3 g-4">
+  {% for p in products %}
+  <div class="col">
+    <div class="card h-100">
+      <div class="card-body">
+        <h5 class="card-title">{{ p.name }}</h5>
+        <p class="card-text">SKU: {{ p.sku }}</p>
+        <p class="card-text"><strong>{{ '%.2f'|format(p.price|float) }} ₸</strong></p>
+        <p class="card-text">В наличии: {{ p.stock }}</p>
+        {% if user %}
+        <button class="btn btn-primary btn-sm add-to-cart" data-id="{{ p.id }}">В корзину</button>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <p>Пока нет товаров</p>
+  {% endfor %}
+</div>
+{% if user %}
+<script>
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.add-to-cart');
+    if (!btn) return;
+    const id = btn.getAttribute('data-id');
+    const res = await fetch('/api/cart/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ product_id: id, qty: 1 })
+    });
+    if (res.ok) {
+      btn.textContent = 'Добавлено!';
+      setTimeout(() => btn.textContent = 'В корзину', 1000);
+      // update cart count badge
+      try {
+        const cr = await fetch('/api/cart');
+        if (cr.ok) {
+          const data = await cr.json();
+          const count = (data.items || []).reduce((n, it) => n + (it.qty || 0), 0);
+          const el = document.getElementById('cart-count');
+          if (el) el.textContent = count;
+          const t = document.getElementById('cart-total');
+          if (t) t.textContent = `${(data.total || 0).toFixed(2)} ₸`;
+        }
+      } catch (_) {}
+    } else {
+      const t = await res.text();
+      alert('Ошибка: ' + t);
+    }
+  });
+</script>
+{% endif %}
+{% endblock %}

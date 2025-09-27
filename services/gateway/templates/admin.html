@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Админ-панель</h1>
+<section class="mb-4">
+  <h2>Создать товар</h2>
+  <form id="createForm" class="row g-2">
+    <div class="col-md-2"><input class="form-control" name="sku" placeholder="SKU" required /></div>
+    <div class="col-md-3"><input class="form-control" name="name" placeholder="Название" required /></div>
+    <div class="col-md-2"><input class="form-control" name="price" type="number" step="0.01" placeholder="Цена" required /></div>
+    <div class="col-md-2"><input class="form-control" name="stock" type="number" placeholder="Остаток" value="0" /></div>
+    <div class="col-md-2 form-check mt-2">
+      <input class="form-check-input" type="checkbox" name="is_active" checked />
+      <label class="form-check-label">Активен</label>
+    </div>
+    <div class="col-md-1"><button class="btn btn-success" type="submit">Создать</button></div>
+  </form>
+</section>
+<section>
+  <h2>Товары</h2>
+  <div id="products" class="list-group"></div>
+</section>
+
+<script>
+  async function loadProducts() {
+    const res = await fetch('/api/products');
+    const items = await res.json();
+    const root = document.getElementById('products');
+    root.innerHTML = '';
+    items.forEach(p => {
+      const el = document.createElement('div');
+      el.className = 'list-group-item';
+      el.innerHTML = `
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <b>${p.name}</b> (SKU: ${p.sku}) — ${p.price} ₸ — Остаток: <b>${p.stock}</b> — ${p.is_active ? 'В продаже' : 'Снято'}
+          </div>
+          <div>
+            <button class="btn btn-sm btn-outline-primary" data-action="toggle" data-id="${p.id}">${p.is_active ? 'Снять' : 'Вернуть'}</button>
+            <button class="btn btn-sm btn-outline-secondary" data-action="edit" data-id="${p.id}">Редактировать</button>
+            <button class="btn btn-sm btn-outline-danger" data-action="delete" data-id="${p.id}">Удалить</button>
+          </div>
+        </div>
+        <form class="row g-2 mt-2 d-none" data-edit-form="${p.id}">
+          <div class="col-md-2"><input class="form-control" name="sku" value="${p.sku}" /></div>
+          <div class="col-md-3"><input class="form-control" name="name" value="${p.name}" /></div>
+          <div class="col-md-2"><input class="form-control" name="price" type="number" step="0.01" value="${p.price}" /></div>
+          <div class="col-md-2"><input class="form-control" name="stock" type="number" value="${p.stock}" /></div>
+          <div class="col-md-2 form-check mt-2">
+            <input class="form-check-input" type="checkbox" name="is_active" ${p.is_active ? 'checked' : ''} />
+            <label class="form-check-label">Активен</label>
+          </div>
+          <div class="col-md-1"><button class="btn btn-success btn-sm" data-action="save" data-id="${p.id}">Сохранить</button></div>
+        </form>`;
+      root.appendChild(el);
+    });
+  }
+
+  document.getElementById('products').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    const id = btn.getAttribute('data-id');
+    const action = btn.getAttribute('data-action');
+    if (action === 'toggle') {
+      const resGet = await fetch(`/api/products/${id}`);
+      const prod = await resGet.json();
+      const res = await fetch(`/api/products/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: !prod.is_active })
+      });
+      if (res.ok) loadProducts(); else alert('Ошибка');
+    } else if (action === 'edit') {
+      const form = document.querySelector(`[data-edit-form="${id}"]`);
+      if (form) form.classList.toggle('d-none');
+    } else if (action === 'save') {
+      e.preventDefault();
+      const form = document.querySelector(`[data-edit-form="${id}"]`);
+      const fd = new FormData(form);
+      const payload = {
+        sku: fd.get('sku'),
+        name: fd.get('name'),
+        price: parseFloat(fd.get('price')),
+        stock: parseInt(fd.get('stock') || '0', 10),
+        is_active: fd.get('is_active') === 'on'
+      };
+      const res = await fetch(`/api/products/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) loadProducts(); else alert('Ошибка сохранения');
+    } else if (action === 'delete') {
+      const res = await fetch(`/api/products/${id}`, { method: 'DELETE' });
+      if (res.status === 204) loadProducts(); else alert('Ошибка удаления');
+    }
+  });
+
+  document.getElementById('createForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const payload = {
+      sku: formData.get('sku'),
+      name: formData.get('name'),
+      price: parseFloat(formData.get('price')),
+      stock: parseInt(formData.get('stock') || '0', 10),
+      is_active: formData.get('is_active') === 'on',
+    };
+    const res = await fetch('/api/products', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (res.ok) { e.target.reset(); loadProducts(); }
+    else { const t = await res.text(); alert('Ошибка: ' + t); }
+  });
+
+  loadProducts();
+</script>
+{% endblock %}

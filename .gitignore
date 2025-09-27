@@ -1,0 +1,66 @@
+### OS / Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.ropeproject/
+*.swp
+*.swo
+
+### Python bytecode / caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+### Packaging / build artifacts
+build/
+dist/
+wheels/
+*.egg-info/
+.eggs/
+*.egg
+pip-wheel-metadata/
+pip-log.txt
+pip-delete-this-directory.txt
+
+### Virtual environments / env files
+.venv/
+venv/
+env/
+ENV/
+.env
+.env.*
+.envrc
+
+### Test, coverage, benchmarks
+.pytest_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.hypothesis/
+.benchmarks/
+
+### Type checking / linters
+.mypy_cache/
+.pytype/
+.ruff_cache/
+.pyre/
+
+### PyInstaller
+*.manifest
+*.spec
+
+### Sphinx docs
+docs/_build/
+
+### SQLite (if used locally)
+*.sqlite3
+
+### Docker / misc
+*.pid
+docker-compose.override.yml
+alembic/__pycache__/

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Регистрация</h1>
+<form id="regForm" class="row g-3" style="max-width:480px">
+  <div class="col-12">
+    <label class="form-label">Email</label>
+    <input class="form-control" name="email" type="email" required />
+  </div>
+  <div class="col-12">
+    <label class="form-label">Пароль</label>
+    <input class="form-control" name="password" type="password" required />
+  </div>
+  <div class="col-12">
+    <button class="btn btn-primary" type="submit">Зарегистрироваться</button>
+  </div>
+  <div class="col-12"><a href="/login">У меня уже есть аккаунт</a></div>
+  <div id="msg" class="text-danger"></div>
+  <script>
+    document.getElementById('regForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const payload = { email: fd.get('email'), password: fd.get('password') };
+      const res = await fetch('/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) { window.location = '/'; }
+      else {
+        let text = await res.text();
+        try { const j = JSON.parse(text); text = j.detail || text; } catch {}
+        document.getElementById('msg').textContent = text;
+      }
+    });
+  </script>
+</form>
+{% endblock %}
+

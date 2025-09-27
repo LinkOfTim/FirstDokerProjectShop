@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Вход</h1>
+<form id="loginForm" class="card p-3" style="max-width: 420px;">
+  <div class="mb-3">
+    <label class="form-label">Email</label>
+    <input class="form-control" type="email" name="username" required />
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Пароль</label>
+    <input class="form-control" type="password" name="password" required />
+  </div>
+  <button class="btn btn-primary" type="submit">Войти</button>
+  <div id="err" class="text-danger mt-2" style="display:none"></div>
+</form>
+<script>
+  const form = document.getElementById('loginForm');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const data = new URLSearchParams(new FormData(form));
+    const res = await fetch('/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: data
+    });
+    if (res.ok) {
+      location.href = '/admin';
+    } else {
+      document.getElementById('err').style.display='block';
+      document.getElementById('err').innerText = 'Неверный логин или пароль';
+    }
+  });
+</script>
+{% endblock %}
+

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Детали заказа</h1>
+<div id="order"></div>
+<script>
+  async function loadOrder() {
+    const oid = location.pathname.split('/').pop();
+    const res = await fetch(`/api/orders/${oid}`);
+    const root = document.getElementById('order');
+    if (!res.ok) { root.textContent = 'Заказ не найден'; return; }
+    const o = await res.json();
+    const created = new Date(o.created_at).toLocaleString();
+    let html = `<div class="card"><div class="card-body">
+      <div class="d-flex justify-content-between">
+        <div><b>Заказ #${o.id}</b> — ${created}<br/>Статус: <span class="badge text-bg-success">${o.status}</span></div>
+        <div class="text-end">Итого: <b>${(o.total||0).toFixed ? o.total.toFixed(2) : o.total} ₸</b></div>
+      </div>
+      <hr />
+      <div>`;
+    o.items.forEach(it => {
+      html += `<div class="d-flex justify-content-between border-bottom py-1">
+        <div>${it.name} — ${it.price} ₸ × ${it.qty}</div>
+        <div><b>${it.subtotal} ₸</b></div>
+      </div>`;
+    });
+    html += `</div></div></div>`;
+    root.innerHTML = html;
+  }
+  loadOrder();
+ </script>
+{% endblock %}
+

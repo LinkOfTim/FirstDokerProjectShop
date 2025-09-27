@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Аккаунт</h1>
+<div class="card" style="max-width:520px">
+  <div class="card-body">
+    <p class="mb-2">Email: <b>{{ user.sub }}</b></p>
+    <p class="mb-2">Роль: <span class="badge text-bg-secondary">{{ user.role }}</span></p>
+    <hr />
+    <h5 class="card-title">Смена пароля</h5>
+    <form id="pwdForm" class="row g-2">
+      <div class="col-12"><input class="form-control" name="old_password" type="password" placeholder="Текущий пароль" required /></div>
+      <div class="col-12"><input class="form-control" name="new_password" type="password" placeholder="Новый пароль" required /></div>
+      <div class="col-12"><button class="btn btn-primary" type="submit">Сменить пароль</button></div>
+    </form>
+    <div id="msg" class="mt-2 small"></div>
+  </div>
+  <script>
+    document.getElementById('pwdForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const body = { old_password: fd.get('old_password'), new_password: fd.get('new_password') };
+      const res = await fetch('/auth/change_password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const msg = document.getElementById('msg');
+      if (res.ok) { msg.className = 'mt-2 text-success small'; msg.textContent = 'Пароль изменён'; e.target.reset(); }
+      else { let t = await res.text(); try { t = JSON.parse(t).detail || t; } catch {} msg.className = 'mt-2 text-danger small'; msg.textContent = t; }
+    });
+  </script>
+</div>
+{% endblock %}
+
