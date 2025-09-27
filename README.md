@@ -340,14 +340,14 @@ erDiagram
 
   products {
     uuid id PK
-    string sku UNIQ
+    string sku UK
     string name
     numeric price
     int stock
     bool is_active
-    string description optional
-    jsonb attributes optional
-    uuid template_id FK optional
+    string description
+    jsonb attributes
+    uuid template_id FK
     timestamptz created_at
     timestamptz updated_at
   }
@@ -359,7 +359,7 @@ erDiagram
   categories {
     uuid id PK
     string name
-    string slug UNIQ
+    string slug UK
   }
   product_categories {
     uuid product_id FK
@@ -367,7 +367,7 @@ erDiagram
   }
   product_templates {
     uuid id PK
-    string name UNIQ
+    string name UK
     jsonb schema
     timestamptz created_at
   }
