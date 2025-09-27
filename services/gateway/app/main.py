@@ -19,6 +19,20 @@ app = FastAPI(title=settings.app_name)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
+# Jinja filters
+def format_price(value) -> str:
+    try:
+        n = float(value)
+    except Exception:
+        return str(value)
+    s = f"{n:,.2f}"  # 1,234,567.89
+    s = s.replace(",", "_")  # 1_234_567.89
+    s = s.replace(".", ",")   # 1_234_567,89
+    s = s.replace("_", ".")   # 1.234.567,89
+    return s
+
+templates.env.filters["price"] = format_price
+
 # no in-memory cart; gateway proxies to cart-service
 
 
@@ -78,6 +92,20 @@ async def home(request: Request):
         products = []
     user = get_user_payload(get_token_from_cookie(request))
     return templates.TemplateResponse("index.html", {"request": request, "products": products, "user": user})
+
+
+@app.get("/product/{pid}", response_class=HTMLResponse)
+async def product_page(pid: str, request: Request):
+    user = get_user_payload(get_token_from_cookie(request))
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(f"{settings.catalog_url}/products/{pid}")
+            if r.status_code != 200:
+                return templates.TemplateResponse("product.html", {"request": request, "user": user, "product": None})
+            product = r.json()
+    except httpx.RequestError:
+        product = None
+    return templates.TemplateResponse("product.html", {"request": request, "user": user, "product": product})
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -155,6 +183,22 @@ async def admin_orders_page(request: Request, token: Optional[str] = Depends(get
     return templates.TemplateResponse("admin_orders.html", {"request": request, "user": user})
 
 
+@app.get("/admin/stats", response_class=HTMLResponse)
+async def admin_stats_page(request: Request, token: Optional[str] = Depends(get_token_from_cookie)):
+    if not is_admin(token):
+        return RedirectResponse("/login", status_code=302)
+    user = get_user_payload(token)
+    return templates.TemplateResponse("admin_stats.html", {"request": request, "user": user})
+
+
+@app.get("/admin/templates", response_class=HTMLResponse)
+async def admin_templates_page(request: Request, token: Optional[str] = Depends(get_token_from_cookie)):
+    if not is_admin(token):
+        return RedirectResponse("/login", status_code=302)
+    user = get_user_payload(token)
+    return templates.TemplateResponse("admin_templates.html", {"request": request, "user": user})
+
+
 # Proxy API endpoints
 @app.get("/api/products")
 async def api_list_products(request: Request):
@@ -182,6 +226,73 @@ async def api_get_product(pid: str):
             return JSONResponse(r.json(), status_code=r.status_code)
     except httpx.RequestError:
         return JSONResponse(status_code=503, content={"detail": "catalog unavailable"})
+
+
+@app.get("/api/products/sku/{sku}")
+async def api_get_product_by_sku(sku: str):
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(f"{settings.catalog_url}/products/sku/{sku}")
+            return JSONResponse(r.json(), status_code=r.status_code)
+    except httpx.RequestError:
+        return JSONResponse(status_code=503, content={"detail": "catalog unavailable"})
+
+
+# Templates proxy (admin protected for write operations)
+@app.get("/api/templates")
+async def api_list_templates():
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(f"{settings.catalog_url}/templates/")
+            return JSONResponse(r.json(), status_code=r.status_code)
+    except httpx.RequestError:
+        return JSONResponse(status_code=503, content={"detail": "catalog unavailable"})
+
+
+@app.post("/api/templates")
+async def api_create_template(request: Request, token: Optional[str] = Depends(get_token_from_cookie)):
+    if not is_admin(token):
+        return JSONResponse(status_code=403, content={"detail": "Admin required"})
+    payload = await request.json()
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        r = await client.post(
+            f"{settings.catalog_url}/templates/",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        )
+        try:
+            return JSONResponse(status_code=r.status_code, content=r.json())
+        except Exception:
+            return JSONResponse(status_code=r.status_code, content={"detail": r.text})
+
+
+@app.patch("/api/templates/{tid}")
+async def api_update_template(tid: str, request: Request, token: Optional[str] = Depends(get_token_from_cookie)):
+    if not is_admin(token):
+        return JSONResponse(status_code=403, content={"detail": "Admin required"})
+    payload = await request.json()
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        r = await client.patch(
+            f"{settings.catalog_url}/templates/{tid}",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        )
+        try:
+            return JSONResponse(status_code=r.status_code, content=r.json())
+        except Exception:
+            return JSONResponse(status_code=r.status_code, content={"detail": r.text})
+
+
+@app.delete("/api/templates/{tid}")
+async def api_delete_template(tid: str, token: Optional[str] = Depends(get_token_from_cookie)):
+    if not is_admin(token):
+        return JSONResponse(status_code=403, content={"detail": "Admin required"})
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        r = await client.delete(
+            f"{settings.catalog_url}/templates/{tid}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        return Response(status_code=r.status_code)
 
 
 @app.post("/api/products")
@@ -491,6 +602,21 @@ async def api_order_detail(oid: str, token: Optional[str] = Depends(get_token_fr
         return JSONResponse(status_code=r.status_code, content={"detail": r.text})
 
 
+@app.patch("/api/orders/{oid}/cancel")
+async def api_user_cancel_order(oid: str, token: Optional[str] = Depends(get_token_from_cookie)):
+    if not token:
+        return JSONResponse(status_code=401, content={"detail": "Login required"})
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.patch(
+            f"{settings.order_url}/orders/{oid}/cancel",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        try:
+            return JSONResponse(status_code=r.status_code, content=r.json())
+        except Exception:
+            return JSONResponse(status_code=r.status_code, content={"detail": r.text})
+
+
 @app.get("/api/admin/orders")
 async def api_admin_orders(request: Request, token: Optional[str] = Depends(get_token_from_cookie)):
     if not is_admin(token):
@@ -520,3 +646,99 @@ async def api_admin_cancel_order(oid: str, token: Optional[str] = Depends(get_to
             return JSONResponse(status_code=r.status_code, content=r.json())
         except Exception:
             return JSONResponse(status_code=r.status_code, content={"detail": r.text})
+
+
+@app.get("/api/admin/stats")
+async def api_admin_stats(token: Optional[str] = Depends(get_token_from_cookie)):
+    if not is_admin(token):
+        return JSONResponse(status_code=403, content={"detail": "Admin required"})
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            # products
+            pr = await client.get(f"{settings.catalog_url}/products/")
+            products = pr.json() if pr.status_code == 200 else []
+            # orders (admin)
+            orr = await client.get(
+                f"{settings.order_url}/admin/orders",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            orders = orr.json() if orr.status_code == 200 else []
+    except httpx.RequestError:
+        products, orders = [], []
+
+    # products stats
+    total_products = len(products)
+    active_products = sum(1 for p in products if p.get("is_active", True))
+    low_stock_threshold = 3
+    low_stock = [
+        {"id": p.get("id"), "sku": p.get("sku"), "name": p.get("name"), "stock": int(p.get("stock", 0))}
+        for p in products
+        if int(p.get("stock", 0)) <= low_stock_threshold
+    ]
+
+    # orders stats
+    total_orders = len(orders)
+    total_revenue = 0.0
+    buyers = set()
+    by_product: Dict[str, Dict[str, object]] = {}
+    by_day: Dict[str, Dict[str, float]] = {}
+    from datetime import datetime
+    for o in orders:
+        buyers.add(o.get("user"))
+        try:
+            total_revenue += float(o.get("total", 0))
+        except Exception:
+            pass
+        for it in o.get("items", []):
+            pid = str(it.get("product_id"))
+            qty = int(it.get("qty", 0))
+            revenue = float(it.get("subtotal", 0))
+            name = it.get("name")
+            sku = it.get("sku")
+            acc = by_product.setdefault(pid, {"product_id": pid, "name": name, "sku": sku, "qty": 0, "revenue": 0.0})
+            acc["qty"] = int(acc["qty"]) + qty
+            acc["revenue"] = float(acc["revenue"]) + revenue
+        # timeseries
+        created_at = o.get("created_at")
+        if created_at:
+            try:
+                d = datetime.fromisoformat(created_at.replace("Z", "+00:00")).date().isoformat()
+                rec = by_day.setdefault(d, {"count": 0, "revenue": 0.0})
+                rec["count"] += 1
+                rec["revenue"] += float(o.get("total", 0))
+            except Exception:
+                pass
+
+    # top products by revenue
+    top_products = sorted(by_product.values(), key=lambda x: (float(x["revenue"]), int(x["qty"])), reverse=True)[:5]
+
+    # last 7 days summary
+    from datetime import timedelta, date
+    today = date.today()
+    last7 = []
+    for i in range(6, -1, -1):
+        day = (today - timedelta(days=i)).isoformat()
+        rec = by_day.get(day, {"count": 0, "revenue": 0.0})
+        last7.append({"date": day, "count": rec["count"], "revenue": rec["revenue"]})
+
+    return {
+        "products": {
+            "total": total_products,
+            "active": active_products,
+            "low_stock": low_stock[:10],
+        },
+        "total_orders": total_orders,
+        "total_revenue": round(total_revenue, 2),
+        "unique_buyers": len([b for b in buyers if b]),
+        "top_products": [
+            {
+                "product_id": p["product_id"],
+                "name": p.get("name"),
+                "sku": p.get("sku"),
+                "qty": int(p.get("qty", 0)),
+                "revenue": round(float(p.get("revenue", 0.0)), 2),
+            }
+            for p in top_products
+        ],
+        "last7": last7,
+    }

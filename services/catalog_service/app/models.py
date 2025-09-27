@@ -15,7 +15,7 @@ from sqlalchemy import (
     Table,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -32,6 +32,9 @@ class Product(Base):
     price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     stock: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    description: Mapped[str | None] = mapped_column(String(5000), nullable=True)
+    attributes: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    template_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("product_templates.id"), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP"), nullable=False
@@ -44,6 +47,7 @@ class Product(Base):
     categories: Mapped[list[Category]] = relationship(
         secondary=lambda: product_categories, back_populates="products"
     )
+    template: Mapped[ProductTemplate | None] = relationship(back_populates="products")
 
 
 class Category(Base):
@@ -75,3 +79,15 @@ class ProductImage(Base):
 
     product: Mapped[Product] = relationship(back_populates="images")
 
+
+class ProductTemplate(Base):
+    __tablename__ = "product_templates"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(160), nullable=False, unique=True)
+    schema: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP"), nullable=False
+    )
+
+    products: Mapped[list[Product]] = relationship(back_populates="template")

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import uuid
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, Any, Dict
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, AnyHttpUrl
 
 
 class ProductBase(BaseModel):
@@ -13,10 +13,13 @@ class ProductBase(BaseModel):
     price: Decimal
     stock: int = 0
     is_active: bool = True
+    description: Optional[str] = None
+    template_id: Optional[uuid.UUID] = None
+    attributes: Optional[Dict[str, Any]] = None
 
 
 class ProductCreate(ProductBase):
-    pass
+    images: list[AnyHttpUrl] = []
 
 
 class ProductUpdate(BaseModel):
@@ -25,11 +28,12 @@ class ProductUpdate(BaseModel):
     price: Optional[Decimal] = None
     stock: Optional[int] = None
     is_active: Optional[bool] = None
+    images: Optional[list[AnyHttpUrl]] = None
 
 
 class ProductOut(ProductBase):
     id: uuid.UUID
+    images: list[str] = []
 
     class Config:
         from_attributes = True
-

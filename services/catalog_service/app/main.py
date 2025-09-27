@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from .config import settings
 from .db import health_check
 from .errors import add_exception_handlers, setup_logging
-from .routers import products
+from .routers import products, templates
 
 
 setup_logging()
@@ -20,4 +20,4 @@ async def health():
 
 
 app.include_router(products.router)
-
+app.include_router(templates.router)

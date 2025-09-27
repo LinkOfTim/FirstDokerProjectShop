@@ -19,16 +19,24 @@
           <div class="d-flex justify-content-between">
             <div>
               <div><b>Заказ #${o.id}</b> — ${created}</div>
-              <div>Статус: <span class="badge text-bg-success">${o.status}</span></div>
+              <div>Статус: <span class="badge ${o.status==='canceled' ? 'text-bg-danger' : 'text-bg-success'}">${o.status}</span></div>
             </div>
-            <div class="text-end">Итого: <b>${o.total.toFixed ? o.total.toFixed(2) : o.total} ₸</b></div>
+            <div class="text-end">Итого: <b>${formatPrice(o.total)} ₸</b></div>
           </div>
           <a class="btn btn-sm btn-outline-primary mt-2" href="/orders/${o.id}">Детали</a>
+          ${o.status !== 'canceled' ? `<button class="btn btn-sm btn-outline-danger mt-2 ms-2" data-cancel="${o.id}">Отменить</button>` : ''}
         </div>`;
       root.appendChild(el);
     });
   }
   loadOrders();
+  document.getElementById('orders').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button[data-cancel]');
+    if (!btn) return;
+    const id = btn.getAttribute('data-cancel');
+    const res = await fetch(`/api/orders/${id}/cancel`, { method: 'PATCH' });
+    if (res.ok) loadOrders();
+    else alert('Не удалось отменить заказ');
+  });
 </script>
 {% endblock %}
-

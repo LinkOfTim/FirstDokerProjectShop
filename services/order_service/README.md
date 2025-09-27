@@ -1,7 +1,7 @@
 Order Service
 =============
 
-Сервис FastAPI: оформление заказов, хранение заказов в Postgres, интеграция с Cart и Catalog.
+Сервис FastAPI: оформление заказов, хранение заказов в Postgres, интеграция с Cart и Catalog. Поддерживает отмену заказа пользователем и администратором.
 
 Переменные окружения
 - `DATABASE_URL` — `postgresql+asyncpg://...`
@@ -16,7 +16,8 @@ Order Service
 - GET `/orders/{id}` — один заказ пользователя
 - POST `/orders/checkout` — оформить заказ: читает корзину, валидирует товары, уменьшает stock в каталоге, сохраняет заказ, очищает корзину
 - GET `/admin/orders` — список заказов (admin), фильтры: `status`, `email`
-- PATCH `/orders/{id}/cancel` — отменить заказ (admin)
+- PATCH `/orders/{id}/cancel` — отменить заказ (пользователь — только свой; админ — любой)
+  - При первой отмене товарные остатки возвращаются в каталоге.
 
 Пример сценария (curl из контейнера gateway)
 
@@ -42,4 +43,9 @@ docker compose exec gateway curl -s \
 docker compose exec gateway curl -s \
   -H "Authorization: Bearer $USER_TOKEN" \
   http://order:8000/orders
+
+# 5) Отменить заказ пользователем
+docker compose exec gateway curl -s -X PATCH \
+  -H "Authorization: Bearer $USER_TOKEN" \
+  http://order:8000/orders/<order_uuid>/cancel
 ```

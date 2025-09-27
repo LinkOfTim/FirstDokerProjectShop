@@ -5,10 +5,12 @@
   <div class="col-md-4"><input class="form-control" type="text" name="q" value="{{ request.query_params.get('q') or '' }}" placeholder="Поиск по названию или SKU" /></div>
   <div class="col-md-2"><input class="form-control" type="number" step="0.01" name="min_price" value="{{ request.query_params.get('min_price') or '' }}" placeholder="Мин. цена" /></div>
   <div class="col-md-2"><input class="form-control" type="number" step="0.01" name="max_price" value="{{ request.query_params.get('max_price') or '' }}" placeholder="Макс. цена" /></div>
-  <div class="col-md-2 form-check mt-2">
-    <input class="form-check-input" type="checkbox" name="is_active" value="true" {% if request.query_params.get('is_active') %}checked{% endif %} />
-    <label class="form-check-label">Только активные</label>
-  </div>
+  {% if user and user.role == 'admin' %}
+    <div class="col-md-2 form-check mt-2">
+      <input class="form-check-input" type="checkbox" name="is_active" value="true" {% if request.query_params.get('is_active') %}checked{% endif %} />
+      <label class="form-check-label">Только активные</label>
+    </div>
+  {% endif %}
   <div class="col-md-2"><button class="btn btn-primary" type="submit">Фильтр</button></div>
   {% if request.query_params %}
     <div class="col-12"><a href="/" class="small">Сбросить фильтры</a></div>
@@ -18,14 +20,23 @@
   {% for p in products %}
   <div class="col">
     <div class="card h-100">
+      <a href="/product/{{ p.id }}" class="text-decoration-none text-reset">
+      {% if p.images and p.images[0] %}
+      <img src="{{ p.images[0] }}" class="card-img-top product-card-img" alt="{{ p.name }}" loading="lazy"/>
+      {% endif %}
       <div class="card-body">
         <h5 class="card-title">{{ p.name }}</h5>
         <p class="card-text">SKU: {{ p.sku }}</p>
-        <p class="card-text"><strong>{{ '%.2f'|format(p.price|float) }} ₸</strong></p>
-        <p class="card-text">В наличии: {{ p.stock }}</p>
-        {% if user %}
-        <button class="btn btn-primary btn-sm add-to-cart" data-id="{{ p.id }}">В корзину</button>
+        <p class="card-text price">{{ p.price | price }} ₸</p>
+        {% if user and user.role == 'admin' %}
+          <p class="card-text">В наличии: {{ p.stock }}</p>
+        {% else %}
+          <p class="card-text">Наличие: {{ (p.stock|int) > 0 and 'Есть' or 'Нет' }}</p>
         {% endif %}
+      </a>
+      {% if user %}
+        <button class="btn btn-primary btn-sm add-to-cart" data-id="{{ p.id }}">В корзину</button>
+      {% endif %}
       </div>
     </div>
   </div>

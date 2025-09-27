@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Шаблоны товаров</h1>
+<ul class="nav nav-pills mb-3">
+  <li class="nav-item"><a class="nav-link" href="/admin">Товары</a></li>
+  <li class="nav-item"><a class="nav-link" href="/admin/orders">Заказы</a></li>
+  <li class="nav-item"><a class="nav-link" href="/admin/stats">Статистика</a></li>
+  <li class="nav-item"><a class="nav-link active" href="/admin/templates">Шаблоны</a></li>
+</ul>
+
+<div class="row g-3">
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header">Новый шаблон</div>
+      <div class="card-body">
+        <form id="tplForm" class="row g-2">
+          <div class="col-12"><input class="form-control" name="name" placeholder="Название шаблона" required></div>
+          <div class="col-12">
+            <label class="form-label small text-muted">Schema (JSON), например: {"brand":"string","color":"string","weight":"number"}</label>
+            <textarea class="form-control" name="schema" rows="6" placeholder='{"brand":"string","color":"string"}'></textarea>
+          </div>
+          <div class="col-12 text-end"><button class="btn btn-success">Создать</button></div>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header">Список шаблонов</div>
+      <div class="card-body">
+        <div id="tplList">Загрузка...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  async function loadTemplates() {
+    const res = await fetch('/api/templates');
+    const root = document.getElementById('tplList');
+    if (!res.ok) { root.textContent = 'Ошибка'; return; }
+    const arr = await res.json();
+    if (!arr.length) { root.textContent = 'Пока нет шаблонов'; return; }
+    root.innerHTML = '';
+    arr.forEach(t => {
+      const el = document.createElement('div');
+      el.className = 'border rounded p-2 mb-2';
+      el.innerHTML = `<div class="d-flex justify-content-between">
+        <div><b>${t.name}</b></div>
+        <div><button class="btn btn-sm btn-outline-danger" data-del="${t.id}">Удалить</button></div>
+      </div>
+      <pre class="small mt-2 mb-0">${JSON.stringify(t.schema, null, 2)}</pre>`;
+      root.appendChild(el);
+    });
+  }
+  document.getElementById('tplList').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button[data-del]');
+    if (!btn) return;
+    const id = btn.getAttribute('data-del');
+    const r = await fetch(`/api/templates/${id}`, { method: 'DELETE' });
+    if (r.status === 204) loadTemplates(); else alert('Не удалось удалить');
+  });
+  document.getElementById('tplForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    let schema = {};
+    try { schema = JSON.parse(fd.get('schema') || '{}'); } catch { alert('Некорректный JSON schema'); return; }
+    const payload = { name: fd.get('name'), schema };
+    const r = await fetch('/api/templates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    if (r.ok) { e.target.reset(); loadTemplates(); } else { alert('Ошибка создания'); }
+  });
+  loadTemplates();
+</script>
+{% endblock %}
+

@@ -2,6 +2,7 @@
 {% block content %}
 <h1>Детали заказа</h1>
 <div id="order"></div>
+<div class="mt-2" id="actions"></div>
 <script>
   async function loadOrder() {
     const oid = location.pathname.split('/').pop();
@@ -12,21 +13,28 @@
     const created = new Date(o.created_at).toLocaleString();
     let html = `<div class="card"><div class="card-body">
       <div class="d-flex justify-content-between">
-        <div><b>Заказ #${o.id}</b> — ${created}<br/>Статус: <span class="badge text-bg-success">${o.status}</span></div>
-        <div class="text-end">Итого: <b>${(o.total||0).toFixed ? o.total.toFixed(2) : o.total} ₸</b></div>
+        <div><b>Заказ #${o.id}</b> — ${created}<br/>Статус: <span class="badge ${o.status==='canceled' ? 'text-bg-danger' : 'text-bg-success'}">${o.status}</span></div>
+        <div class="text-end">Итого: <b>${formatPrice(o.total||0)} ₸</b></div>
       </div>
       <hr />
       <div>`;
     o.items.forEach(it => {
       html += `<div class="d-flex justify-content-between border-bottom py-1">
-        <div>${it.name} — ${it.price} ₸ × ${it.qty}</div>
-        <div><b>${it.subtotal} ₸</b></div>
+        <div>${it.name} — ${formatPrice(it.price)} ₸ × ${it.qty}</div>
+        <div><b>${formatPrice(it.subtotal)} ₸</b></div>
       </div>`;
     });
     html += `</div></div></div>`;
     root.innerHTML = html;
+    const actions = document.getElementById('actions');
+    if (o.status !== 'canceled') {
+      actions.innerHTML = `<button class="btn btn-outline-danger" id="cancelBtn">Отменить заказ</button>`;
+      document.getElementById('cancelBtn').addEventListener('click', async () => {
+        const r = await fetch(`/api/orders/${oid}/cancel`, { method: 'PATCH' });
+        if (r.ok) location.reload(); else alert('Не удалось отменить заказ');
+      });
+    }
   }
   loadOrder();
  </script>
 {% endblock %}
-

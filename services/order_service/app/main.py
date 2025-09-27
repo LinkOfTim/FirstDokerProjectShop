@@ -116,16 +116,39 @@ async def admin_list_orders(
 @app.patch("/orders/{oid}/cancel")
 async def cancel_order(oid: uuid.UUID, token: str = Depends(oauth2_scheme), session: AsyncSession = Depends(get_session)):
     payload = decode_token(token)
-    require_admin(payload)
-    o = await session.get(Order, oid)
+    is_admin = payload.get("role") == "admin"
+    o = await session.get(Order, oid, options=[selectinload(Order.items)])
     if not o:
         raise HTTPException(status_code=404, detail="Order not found")
+    # access: admin or owner
+    if not is_admin and payload.get("sub") != o.user_email:
+        raise HTTPException(status_code=403, detail="Forbidden")
     if o.status == "canceled":
         return serialize_order(o)
+    # set canceled
     o.status = "canceled"
     session.add(o)
     await session.commit()
-    await session.refresh(o)
+    # restore stock back in catalog for each item (once)
+    admin_token = mint_admin_token()
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        for it in o.items:
+            pid = str(it.product_id)
+            pr = await client.get(f"{settings.catalog_url}/products/{pid}")
+            if pr.status_code != 200:
+                continue
+            p = pr.json()
+            try:
+                current = int(p.get("stock", 0))
+            except Exception:
+                current = 0
+            new_stock = current + int(it.qty)
+            await client.patch(
+                f"{settings.catalog_url}/products/{pid}",
+                json={"stock": new_stock},
+                headers={"Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"},
+            )
+    # reload with items
     o = await session.get(Order, oid, options=[selectinload(Order.items)])
     return serialize_order(o)
 

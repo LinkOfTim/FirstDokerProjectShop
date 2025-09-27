@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import selectinload
 
 from ..db import get_session
 from .. import models, schemas
@@ -37,29 +38,98 @@ async def list_products(
         conds.append(models.Product.is_active == is_active)
     if conds:
         stmt = stmt.where(and_(*conds))
-    result = await session.execute(stmt)
-    return list(result.scalars().all())
+    result = await session.execute(stmt.options(selectinload(models.Product.images)))
+    items = list(result.scalars().unique().all())
+    out = [
+        schemas.ProductOut(
+            id=p.id,
+            sku=p.sku,
+            name=p.name,
+            price=p.price,
+            stock=p.stock,
+            is_active=p.is_active,
+            description=getattr(p, "description", None),
+            attributes=getattr(p, "attributes", None),
+            template_id=getattr(p, "template_id", None),
+            images=[img.url for img in (p.images or [])],
+        )
+        for p in items
+    ]
+    return out
 
 
 @router.get("/{product_id}", response_model=schemas.ProductOut)
 async def get_product(product_id: uuid.UUID, session: AsyncSession = Depends(get_session)):
-    product = await session.get(models.Product, product_id)
+    product = await session.get(models.Product, product_id, options=[selectinload(models.Product.images)])
     if not product:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
-    return product
+    return schemas.ProductOut(
+        id=product.id,
+        sku=product.sku,
+        name=product.name,
+        price=product.price,
+        stock=product.stock,
+        is_active=product.is_active,
+        description=getattr(product, "description", None),
+        attributes=getattr(product, "attributes", None),
+        template_id=getattr(product, "template_id", None),
+        images=[pi.url for pi in product.images],
+    )
+
+
+@router.get("/sku/{sku}", response_model=schemas.ProductOut)
+async def get_product_by_sku(sku: str, session: AsyncSession = Depends(get_session)):
+    res = await session.execute(select(models.Product).options(selectinload(models.Product.images)).where(models.Product.sku == sku))
+    p = res.scalar_one_or_none()
+    if not p:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
+    return schemas.ProductOut(
+        id=p.id,
+        sku=p.sku,
+        name=p.name,
+        price=p.price,
+        stock=p.stock,
+        is_active=p.is_active,
+        description=getattr(p, "description", None),
+        attributes=getattr(p, "attributes", None),
+        template_id=getattr(p, "template_id", None),
+        images=[pi.url for pi in p.images],
+    )
 
 
 @router.post("/", response_model=schemas.ProductOut, status_code=status.HTTP_201_CREATED, dependencies=[Depends(get_current_admin)])
 async def create_product(payload: schemas.ProductCreate, session: AsyncSession = Depends(get_session)):
-    product = models.Product(**payload.model_dump())
+    data = payload.model_dump()
+    images = data.pop("images", [])
+    product = models.Product(**data)
     session.add(product)
     try:
+        await session.flush()
+        # attach images (if any)
+        for url in images or []:
+            if url:
+                session.add(models.ProductImage(product_id=product.id, url=str(url)))
         await session.commit()
     except IntegrityError:
         await session.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="SKU must be unique")
-    await session.refresh(product)
-    return product
+    # load image URLs explicitly to avoid any lazy load in async context
+    res = await session.execute(
+        select(models.ProductImage.url).where(models.ProductImage.product_id == product.id)
+    )
+    urls = [row[0] for row in res.all()]
+    return schemas.ProductOut(
+        id=product.id,
+        sku=product.sku,
+        name=product.name,
+        price=product.price,
+        stock=product.stock,
+        is_active=product.is_active,
+        description=getattr(product, "description", None),
+        attributes=getattr(product, "attributes", None),
+        template_id=getattr(product, "template_id", None),
+        images=urls,
+    )
 
 
 @router.patch("/{product_id}", response_model=schemas.ProductOut, dependencies=[Depends(get_current_admin)])
@@ -70,16 +140,42 @@ async def update_product(
     if not product:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
 
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    data = payload.model_dump(exclude_unset=True)
+    images = data.pop("images", None)
+    for field, value in data.items():
         setattr(product, field, value)
+    # replace images if provided
+    if images is not None:
+        # delete old
+        for img in list(product.images):
+            session.delete(img)
+        # add new
+        for url in images:
+            if url:
+                session.add(models.ProductImage(product_id=product.id, url=str(url)))
 
     try:
         await session.commit()
     except IntegrityError:
         await session.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Integrity error")
-    await session.refresh(product)
-    return product
+    # load image URLs explicitly
+    res = await session.execute(
+        select(models.ProductImage.url).where(models.ProductImage.product_id == product.id)
+    )
+    urls = [row[0] for row in res.all()]
+    return schemas.ProductOut(
+        id=product.id,
+        sku=product.sku,
+        name=product.name,
+        price=product.price,
+        stock=product.stock,
+        is_active=product.is_active,
+        description=getattr(product, "description", None),
+        attributes=getattr(product, "attributes", None),
+        template_id=getattr(product, "template_id", None),
+        images=urls,
+    )
 
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(get_current_admin)])

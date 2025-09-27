@@ -21,23 +21,31 @@
     root.innerHTML = '';
     data.items.forEach(it => {
       const p = it.product;
+      const img = (p.images && p.images.length) ? p.images[0] : '';
       const el = document.createElement('div');
       el.className = 'd-flex justify-content-between align-items-center border-bottom py-2';
       el.innerHTML = `
-        <div><b>${p.name}</b> — ${p.price} ₸ × 
-          <div class="btn-group" role="group" aria-label="qty">
-            <button class="btn btn-sm btn-outline-secondary" data-dec="${p.id}">-</button>
-            <span class="px-2" data-qty="${p.id}">${it.qty}</span>
-            <button class="btn btn-sm btn-outline-secondary" data-inc="${p.id}">+</button>
+        <div class="d-flex align-items-center">
+          <img src="${img}" class="cart-thumb" alt="thumb" onerror="this.style.display='none'"/>
+          <div>
+            <div><b>${p.name}</b></div>
+            <div class="small text-muted">SKU: ${p.sku || ''}</div>
+            <div class="small">${formatPrice(p.price)} ₸ × 
+              <div class="btn-group btn-group-sm align-middle" role="group" aria-label="qty">
+                <button class="btn btn-outline-secondary" data-dec="${p.id}">-</button>
+                <span class="px-2" data-qty="${p.id}">${it.qty}</span>
+                <button class="btn btn-outline-secondary" data-inc="${p.id}">+</button>
+              </div>
+              = <b>${formatPrice(it.subtotal)} ₸</b>
+            </div>
           </div>
-          = <b>${it.subtotal} ₸</b>
         </div>
         <button class="btn btn-sm btn-outline-danger" data-remove="${p.id}">Убрать</button>
       `;
       root.appendChild(el);
     });
     // update totals in page header and main navbar
-    document.getElementById('cartTotal').textContent = `${data.total.toFixed(2)} ₸`;
+    document.getElementById('cartTotal').textContent = `${formatPrice(data.total)} ₸`;
     const count = data.items.reduce((n, it) => n + (it.qty || 0), 0);
     document.getElementById('cartCount').textContent = count;
     if (window.updateCartBadge) window.updateCartBadge();

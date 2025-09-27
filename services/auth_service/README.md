@@ -39,3 +39,7 @@ docker compose exec gateway sh -lc "curl -s -i \
 - `sub` — email пользователя
 - `role` — `user` или `admin`
 - Алгоритм: HS256, секрет берётся из `SECRET_KEY`
+
+Хранение паролей
+- Используется `pbkdf2_sha256` (passlib) — устойчивый алгоритм без зависимостей от системных бинарей.
+- Посев админа: если БД пуста, создаётся `admin@example.com / admin123` (или по `ADMIN_EMAIL`/`ADMIN_PASSWORD`).

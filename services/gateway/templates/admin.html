@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Админ-панель</h1>
+<ul class="nav nav-pills mb-3">
+  <li class="nav-item"><a class="nav-link active" href="/admin">Товары</a></li>
+  <li class="nav-item"><a class="nav-link" href="/admin/orders">Заказы</a></li>
+  <li class="nav-item"><a class="nav-link" href="/admin/stats">Статистика</a></li>
+  <li class="nav-item"><a class="nav-link" href="/admin/templates">Шаблоны</a></li>
+  </ul>
 <section class="mb-4">
   <h2>Создать товар</h2>
   <form id="createForm" class="row g-2">
@@ -12,7 +18,24 @@
       <input class="form-check-input" type="checkbox" name="is_active" checked />
       <label class="form-check-label">Активен</label>
     </div>
-    <div class="col-md-1"><button class="btn btn-success" type="submit">Создать</button></div>
+    <div class="col-12">
+      <label class="form-label small text-muted">Ссылки на изображения (по одному URL в строке, опционально):</label>
+      <textarea class="form-control" name="image_urls" rows="2" placeholder="https://...\nhttps://..."></textarea>
+    </div>
+    <div class="col-12">
+      <label class="form-label">Описание</label>
+      <textarea class="form-control" name="description" rows="3" placeholder="Описание товара"></textarea>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Шаблон характеристик</label>
+      <select class="form-select" name="template_id" id="templateSelect"><option value="">Без шаблона</option></select>
+      <div class="form-text">Шаблоны можно управлять на странице <a href="/admin/templates">Шаблоны</a>.</div>
+    </div>
+    <div class="col-12">
+      <label class="form-label">Характеристики (JSON)</label>
+      <textarea class="form-control" name="attributes" rows="4" placeholder='{"brand":"...","color":"..."}'></textarea>
+    </div>
+    <div class="col-md-12 text-end"><button class="btn btn-success" type="submit">Создать</button></div>
   </form>
 </section>
 <section>
@@ -49,6 +72,10 @@
             <input class="form-check-input" type="checkbox" name="is_active" ${p.is_active ? 'checked' : ''} />
             <label class="form-check-label">Активен</label>
           </div>
+          <div class="col-12">
+            <label class="form-label small text-muted">Ссылки на изображения (по одному URL в строке)</label>
+            <textarea class="form-control" name="image_urls" rows="2">${(p.images||[]).join('\n')}</textarea>
+          </div>
           <div class="col-md-1"><button class="btn btn-success btn-sm" data-action="save" data-id="${p.id}">Сохранить</button></div>
         </form>`;
       root.appendChild(el);
@@ -81,8 +108,14 @@
         name: fd.get('name'),
         price: parseFloat(fd.get('price')),
         stock: parseInt(fd.get('stock') || '0', 10),
-        is_active: fd.get('is_active') === 'on'
+        is_active: fd.get('is_active') === 'on',
+        images: (fd.get('image_urls') || '').split('\n').map(s => s.trim()).filter(Boolean)
       };
+      // optionally pass description/attributes/template if administrator expanded the form (not visible in edit by default)
+      const desc = fd.get('description');
+      if (desc !== null) payload.description = desc;
+      try { const attrs = JSON.parse(fd.get('attributes') || '{}'); payload.attributes = attrs; } catch {}
+      const tpl = fd.get('template_id'); if (tpl) payload.template_id = tpl;
       const res = await fetch(`/api/products/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -104,7 +137,16 @@
       price: parseFloat(formData.get('price')),
       stock: parseInt(formData.get('stock') || '0', 10),
       is_active: formData.get('is_active') === 'on',
+      images: (formData.get('image_urls') || '').split('\n').map(s => s.trim()).filter(Boolean),
+      description: formData.get('description') || null,
+      template_id: formData.get('template_id') || null,
+      attributes: (() => { try { return JSON.parse(formData.get('attributes') || '{}'); } catch { return {}; } })(),
     };
+    // pre-check duplicate SKU to show friendly message
+    if (payload.sku) {
+      const chk = await fetch(`/api/products/sku/${encodeURIComponent(payload.sku)}`);
+      if (chk.ok) { alert('Товар с таким SKU уже существует'); return; }
+    }
     const res = await fetch('/api/products', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -115,5 +157,26 @@
   });
 
   loadProducts();
+  // Load templates into selector
+  async function loadTemplates() {
+    const res = await fetch('/api/templates');
+    if (!res.ok) return;
+    const arr = await res.json();
+    const sel = document.getElementById('templateSelect');
+    arr.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t.id; opt.textContent = t.name; sel.appendChild(opt);
+    });
+    sel.addEventListener('change', () => {
+      const id = sel.value;
+      const ta = document.querySelector('textarea[name="attributes"]');
+      const tpl = arr.find(x => x.id === id);
+      if (tpl && tpl.schema && ta) {
+        const skeleton = Object.fromEntries(Object.keys(tpl.schema || {}).map(k => [k, '']));
+        ta.value = JSON.stringify(skeleton, null, 2);
+      }
+    });
+  }
+  loadTemplates();
 </script>
 {% endblock %}

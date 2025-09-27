@@ -10,6 +10,14 @@ E-commerce Monorepo (Auth, Catalog, Cart, Order, Gateway)
 - services/order_service — оформление заказов (PostgreSQL)
 - services/gateway — веб‑интерфейс (FastAPI + Jinja2) и API‑прокси
 
+Новые возможности и изменения
+- Улучшенный UI: скрыта ссылка «Админ» для обычных пользователей; более контрастные цены (формат 244.500,53 ₸).
+- Страница товара: `GET /product/{id}` с галереей, описанием и характеристиками.
+- Картинки: поддержка списка ссылок (URL) у товаров, миниатюры в корзине, lazy‑loading, аккуратное вписывание изображений.
+- Админ‑статистика: `GET /admin/stats` + `GET /api/admin/stats` — суммы, топ‑товары, низкий остаток, динамика за 7 дней.
+- Шаблоны характеристик: CRUD шаблонов в каталоге (`/templates`), UI для управления — `/admin/templates`; создание товара с шаблоном и `attributes` (JSON).
+- Заказы: пользователь может отменить собственный заказ; при отмене остатки возвращаются в каталог (stock восстанавливается).
+
 Требования
 ----------
 - Docker 24+ и Docker Compose v2
@@ -107,12 +115,20 @@ docker compose down -v
 Полезные эндпоинты
 ------------------
 - Gateway UI: `GET /` (список товаров), `GET /login`, `GET /admin`
+- Gateway UI дополнительно: `GET /product/{id}` (карточка товара), `GET /admin/stats`, `GET /admin/templates`
 - Health‑чеки: `GET /health` у каждого сервиса
 - Swagger для внутренних сервисов доступен внутри docker‑сети:
   - auth: `http://auth:8000/docs`
   - catalog: `http://catalog:8000/docs`
   - cart: `http://cart:8000/docs`
   - order: `http://order:8000/docs`
+
+Gateway API (прокси)
+- Товары: `GET /api/products`, `GET /api/products/{id}`, `GET /api/products/sku/{sku}`
+- Корзина: `GET /api/cart`, `POST /api/cart/add`, `POST /api/cart/set`, `POST /api/cart/remove`, `POST /api/cart/clear`
+- Заказы (пользователь): `GET /api/orders`, `GET /api/orders/{id}`, `POST /api/order/checkout`, `PATCH /api/orders/{id}/cancel`
+- Заказы (админ): `GET /api/admin/orders`, `PATCH /api/admin/orders/{id}/cancel`, `GET /api/admin/stats`
+- Шаблоны (админ): `GET /api/templates`, `POST /api/templates`, `PATCH /api/templates/{id}`, `DELETE /api/templates/{id}`
 
 Структура
 ---------
@@ -205,6 +221,242 @@ services:
 - Новые переменные окружения: объявите в `app/config.py` и прокиньте через `docker-compose.yml`.
 - UI правки: правьте Jinja2 в `services/gateway/templates` и стили в `services/gateway/static`.
 - Политики доступа: правьте `app/auth.py`/`authz.py` и проверки ролей в обработчиках.
+
+Каталог: расширения API и данные
+- Товар теперь поддерживает поля: `images: list[str]` (URL), `description: str | null`, `attributes: object | null`, `template_id: UUID | null`.
+- Новые/расширенные ручки каталога:
+  - `GET /products/sku/{sku}` — поиск по точному SKU.
+  - `POST /products` — принимает `images`, `description`, `attributes`, `template_id`.
+  - `PATCH /products/{id}` — может заменить список `images` и обновить доп. поля.
+  - Шаблоны: `GET/POST/PATCH/DELETE /templates`.
+
+Заказы: отмена и возврат остатков
+- Пользователь может отменить свой заказ: `PATCH /api/orders/{id}/cancel` (gateway) → `PATCH /orders/{id}/cancel` (order_service).
+- При первой отмене сервис заказов возвращает списанные остатки в каталоге.
+
+Отображение цен и картинок
+- Цены форматируются как `1.234.567,89 ₸` (и в UI, и в прокси/шаблонах).
+- Изображения в каталоге «вписываются» без кропа; в корзине показываются миниатюры для наглядности.
+
+Примечание по миграциям каталога
+- Добавлена ревизия `0002_product_meta` (описание/характеристики/шаблоны). Если ранее ловили ошибку длины revision при апгрейде — пересоберите образ `catalog` с `--no-cache` и перезапустите.
+
+Архитектура сервисов и Docker-компоненты
+----------------------------------------
+- Сервисы (контейнеры)
+  - `gateway` — UI (FastAPI + Jinja2), прокси к backend’ам. Порт: `8000:8000` (публикуется на хост).
+  - `auth` — авторизация и пользователи (FastAPI + Postgres, SQLAlchemy async).
+  - `catalog` — каталог (FastAPI + Postgres, SQLAlchemy async, Alembic). Хранит товары, картинки (URL), описание, характеристики, шаблоны.
+  - `cart` — корзина (FastAPI + Redis). Ключи вида `cart:{sub}`.
+  - `order` — заказы (FastAPI + Postgres). Оркестрация checkout, отмена и возврат остатков.
+  - `auth-db`, `catalog-db`, `order-db` — PostgreSQL 16 (по одному на сервис).
+  - `cart-redis` — Redis 7 для корзины.
+
+- Сети и DNS
+  - Все контейнеры в общей сети Compose (по умолчанию `<project>_default`).
+  - Обращение между сервисами по DNS-именам: `http://auth:8000`, `http://catalog:8000`, `http://cart:8000`, `http://order:8000`.
+  - UI доступен с хоста: `http://localhost:8000` (или другой порт, если измените в compose).
+
+- Тома (данные)
+  - `auth_pgdata`, `catalog_pgdata`, `order_pgdata` — данные Postgres.
+  - Redis данных по умолчанию не сохраняет (команда `--appendonly no`).
+
+Топология (взаимодействия)
+```mermaid
+flowchart LR
+  subgraph Gateway
+    G[FastAPI + Jinja2]
+  end
+
+  subgraph Auth_Service[auth-service]
+    AAPI[FastAPI]
+    ADB[(PostgreSQL: authdb)]
+    AAPI --- ADB
+  end
+
+  subgraph Catalog_Service[catalog-service]
+    CAPI[FastAPI]
+    CDB[(PostgreSQL: catalog)]
+    CAPI --- CDB
+  end
+
+  subgraph Cart_Service[cart-service]
+    CTAPI[FastAPI]
+    R[(Redis)]
+    CTAPI --- R
+  end
+
+  subgraph Order_Service[order-service]
+    OAPI[FastAPI]
+    ODB[(PostgreSQL: orderdb)]
+    OAPI --- ODB
+  end
+
+  G -->|/auth/*| AAPI
+  G -->|/api/products*| CAPI
+  G -->|/api/cart*| CTAPI
+  G -->|/api/orders*| OAPI
+
+  %% JWT (HS256) общий SECRET_KEY для проверки
+  AAPI <-. HS256 SECRET_KEY .-> CAPI
+  AAPI <-. HS256 SECRET_KEY .-> CTAPI
+  AAPI <-. HS256 SECRET_KEY .-> OAPI
+
+  OAPI -->|↓ stock| CAPI
+  OAPI -->|↑ stock (cancel)| CAPI
+  OAPI -->|cart get/clear| CTAPI
+```
+
+Потоки данных
+- Логин
+  - Gateway → Auth: POST `/auth/login` (формы OAuth2). Auth возвращает JWT, Gateway ставит cookie `access_token` (HttpOnly) → пользователь аутентифицирован в UI.
+- Каталог
+  - Gateway → Catalog: список/фильтры/детали товаров; админские операции (создание/редактирование/удаление) требуют JWT с ролью `admin`.
+- Корзина
+  - Gateway → Cart: GET/POST изменения корзины, авторизация через `Authorization: Bearer <JWT>`. Идентификатор корзины — `sub` из токена.
+- Оформление заказа (checkout)
+  - Gateway → Order: POST `/orders/checkout` с JWT пользователя.
+  - Order: читает корзину из Cart → валидирует каждую позицию в Catalog → уменьшает остатки (PATCH в Catalog с админ-токеном) → сохраняет заказ → очищает корзину.
+- Отмена заказа
+  - Пользователь или админ → Order: PATCH `/orders/{id}/cancel`.
+  - Order: меняет статус на `canceled`, возвращает остатки в Catalog (PATCH).
+
+Назначение Docker-слоёв по шагам
+- Базы (`auth-db`, `catalog-db`, `order-db`) поднимаются первыми; сервисы ждут готовности БД через `scripts/wait_for_db.py` и применяют Alembic миграции.
+- `auth`: при старте сидирует админа (если БД пуста) или по `ADMIN_EMAIL/ADMIN_PASSWORD`.
+- `catalog`: применяет миграции, включает обработку изображений (URL), описания/характеристик, шаблонов.
+- `order`: ждёт `catalog` и `cart` (для формирования/отмены заказа).
+- `gateway`: публикуется на `localhost:8000`, отдаёт UI и проксирует вызовы к backend’ам.
+
+ER-диаграммы (упрощённо)
+
+Каталог (PostgreSQL)
+```mermaid
+erDiagram
+  products ||--o{ product_images : has
+  products ||--o{ product_categories : has
+  categories ||--o{ product_categories : has
+  product_templates ||--o{ products : used_by
+
+  products {
+    uuid id PK
+    string sku UNIQ
+    string name
+    numeric price(12,2)
+    int stock
+    bool is_active
+    string description (nullable)
+    jsonb attributes (nullable)
+    uuid template_id FK (nullable)
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  product_images {
+    uuid id PK
+    uuid product_id FK
+    string url
+  }
+  categories {
+    uuid id PK
+    string name
+    string slug UNIQ
+  }
+  product_categories {
+    uuid product_id FK
+    uuid category_id FK
+  }
+  product_templates {
+    uuid id PK
+    string name UNIQ
+    jsonb schema
+    timestamptz created_at
+  }
+```
+
+Заказы (PostgreSQL)
+```mermaid
+erDiagram
+  orders ||--o{ order_items : has
+
+  orders {
+    uuid id PK
+    string user_email
+    string status  // paid | canceled
+    numeric total(12,2)
+    timestamptz created_at
+  }
+  order_items {
+    uuid id PK
+    uuid order_id FK
+    uuid product_id
+    string sku
+    string name
+    numeric price(12,2)
+    int qty
+    numeric subtotal(12,2)
+  }
+```
+
+Диагностические команды
+- Проверить здоровье сервисов из контейнера gateway:
+  - `docker compose exec gateway curl -s http://auth:8000/health`
+  - `docker compose exec gateway curl -s http://catalog:8000/health`
+  - `docker compose exec gateway curl -s http://order:8000/health`
+  - `docker compose exec gateway curl -s http://cart:8000/health`
+
+Частые вопросы
+- “Почему не вижу админку?” — ссылка «Админ» показывается только при `role=admin` в JWT (логин админом, по умолчанию `admin@example.com / admin123`).
+- “Картинки не грузятся” — внешние сайты могут защищаться от хотлинка. В этом случае добавьте свой хостинг изображений или настройте image‑proxy/кэш (можно реализовать в gateway).
+- “Цены отображаются с точкой” — UI форматирует цены в `1.234.567,89 ₸`. Если видите иначе, обновите страницу/кэш или проверяйте бэкенд-данные.
+
+Image Proxy (опционально)
+-------------------------
+Чтобы стабильно отображать внешние изображения (разные домены, большие размеры, защита от хотлинка) и приводить их к единому виду, можно включить «прокси изображений» в gateway.
+
+Идея
+- Маршрут gateway — например, `GET /img?url=<...>&w=300&h=300&fit=contain`.
+- Gateway скачивает оригинал (по allow‑list доменов), ресайзит через Pillow, кэширует на диске и отдаёт с правильными заголовками кеширования.
+- В шаблонах вместо прямых URL использовать `/img?...`.
+
+Предлагаемая конфигурация (ENV)
+- `IMAGE_PROXY_ENABLED=true|false` — включить/выключить (по умолчанию: выключено).
+- `IMAGE_PROXY_MAX_SIZE_MB=5` — лимит размера загружаемого оригинала.
+- `IMAGE_PROXY_TIMEOUT=5` — таймаут загрузки, секунд.
+- `IMAGE_PROXY_CACHE_DIR=/tmp/image-cache` — путь к локальному кэшу.
+- `IMAGE_PROXY_ALLOWED_HOSTS=example.com,images.example.org` — список разрешённых доменов (обязательно для безопасности).
+
+Параметры запроса
+- `url` — обязательный, абсолютная HTTPS‑ссылка на изображение.
+- `w`, `h` — целевые ширина/высота (px), разумные пределы (например, 64..1600).
+- `fit` — `contain` (по умолчанию) или `cover`.
+- `q` — качество JPEG/WebP (0..95), дефолт 85.
+
+Эскиз реализации (в gateway)
+- Добавить зависимость: Pillow (и, при желании, `filetype`/`python-magic` для валидации MIME).
+- Маршрут `/img` в `services/gateway/app/main.py`:
+  - Проверить `IMAGE_PROXY_ENABLED` и домен `url` ∈ `IMAGE_PROXY_ALLOWED_HOSTS`.
+  - Скачивание через httpx с таймаутами и ограничением размера (stream, проверка Content‑Length).
+  - Ресайз Pillow: `Image.thumbnail` для fit=contain, `ImageOps.fit` для fit=cover.
+  - Кэш‑ключ: SHA256(`url` + `w` + `h` + `fit` + `q`).
+  - Отдача `image/webp` или `image/jpeg` (content negotiation по `Accept`, опционально).
+  - Заголовки: `Cache-Control: public, max-age=31536000, immutable`.
+
+Подключение в шаблонах
+- Главная/карточка товара:
+  - Было: `<img src="{{ p.images[0] }}" ...>`
+  - Станет: `<img src="/img?url={{ p.images[0]|urlencode }}&w=400&h=300&fit=contain" ...>`
+- Корзина/миниатюры: `w=64&h=64`.
+
+Безопасность и ограничения
+- Строгий allow‑list доменов обязателен.
+- Вводите лимиты размера и таймауты, чтобы избежать DoS/oversize загрузок.
+- Разрешайте только HTTPS источники, либо прокси за корпоративным шлюзом.
+- Храните кэш в отдельном томе (если нужно переживать рестарты): добавьте volume и смонтируйте его в gateway.
+
+Альтернатива
+- NGINX с `image_filter` (не всегда доступен) или внешний CDN (Cloudflare Images, Imgix, etc.). В этом случае UI использовать прямые ресайз‑URL CDN.
+
+Нужно — реализую прямо в gateway с флагом ENV, добавлю зависимости и маршруты, подключу в шаблоны и задокументирую параметры.
 
 Диагностика и здоровье
 - Health‑эндпоинты `GET /health` у всех сервисов проверяют доступность зависимостей (БД/Redis).

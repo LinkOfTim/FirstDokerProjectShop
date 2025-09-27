@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Статистика (админ)</h1>
+<ul class="nav nav-pills mb-3">
+  <li class="nav-item"><a class="nav-link" href="/admin">Товары</a></li>
+  <li class="nav-item"><a class="nav-link" href="/admin/orders">Заказы</a></li>
+  <li class="nav-item"><a class="nav-link active" href="/admin/stats">Статистика</a></li>
+  <li class="nav-item"><a class="nav-link" href="/admin/templates">Шаблоны</a></li>
+</ul>
+
+<div id="summary" class="row g-3 mb-3">
+  <!-- summary cards will be injected here -->
+  <div class="col-md-3"><div class="card"><div class="card-body"><div class="text-muted">Заказы</div><div class="h4" id="sum-orders">—</div></div></div></div>
+  <div class="col-md-3"><div class="card"><div class="card-body"><div class="text-muted">Выручка</div><div class="h4" id="sum-revenue">—</div></div></div></div>
+  <div class="col-md-3"><div class="card"><div class="card-body"><div class="text-muted">Покупатели</div><div class="h4" id="sum-buyers">—</div></div></div></div>
+  <div class="col-md-3"><div class="card"><div class="card-body"><div class="text-muted">Товаров (активных)</div><div class="h4" id="sum-products">—</div></div></div></div>
+</div>
+
+<div class="row g-3">
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header">Топ товаров (по выручке)</div>
+      <div class="card-body">
+        <div id="top-products">Загрузка...</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header">Низкий остаток</div>
+      <div class="card-body">
+        <div id="low-stock">Загрузка...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mt-3">
+  <div class="card-header">Динамика (7 дней)</div>
+  <div class="card-body">
+    <div id="timeseries">Загрузка...</div>
+  </div>
+</div>
+
+<script>
+  async function loadStats() {
+    const res = await fetch('/api/admin/stats');
+    if (!res.ok) { document.getElementById('summary').innerHTML = '<div class="text-danger">Ошибка загрузки</div>'; return; }
+    const s = await res.json();
+    document.getElementById('sum-orders').textContent = s.total_orders;
+    document.getElementById('sum-revenue').textContent = (s.total_revenue || 0).toFixed(2) + ' ₸';
+    document.getElementById('sum-buyers').textContent = s.unique_buyers;
+    document.getElementById('sum-products').textContent = `${s.products.total} (${s.products.active})`;
+
+    const tp = document.getElementById('top-products');
+    if (!s.top_products.length) tp.textContent = 'Нет данных';
+    else tp.innerHTML = '<ol class="mb-0">' + s.top_products.map(p => `<li>${p.name} (SKU: ${p.sku || '—'}) — ${p.qty} шт / ${p.revenue.toFixed(2)} ₸</li>`).join('') + '</ol>';
+
+    const ls = document.getElementById('low-stock');
+    if (!s.products.low_stock.length) ls.textContent = 'Все товары в норме';
+    else ls.innerHTML = '<ul class="mb-0">' + s.products.low_stock.map(p => `<li>${p.name} — остаток: <b>${p.stock}</b></li>`).join('') + '</ul>';
+
+    const ts = document.getElementById('timeseries');
+    if (!s.last7.length) ts.textContent = 'Нет заказов за последние 7 дней';
+    else ts.innerHTML = '<div class="row">' + s.last7.map(d => `
+      <div class="col-6 col-md-3 col-lg-2">
+        <div class="border rounded p-2 mb-2 text-center">
+          <div class="small text-muted">${d.date}</div>
+          <div><b>${d.count}</b> заказ(ов)</div>
+          <div class="small">${d.revenue.toFixed(2)} ₸</div>
+        </div>
+      </div>`).join('') + '</div>';
+  }
+  loadStats();
+</script>
+{% endblock %}
