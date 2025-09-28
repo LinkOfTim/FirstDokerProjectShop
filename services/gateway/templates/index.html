@@ -19,10 +19,10 @@
 <div class="row row-cols-1 row-cols-md-3 g-4">
   {% for p in products %}
   <div class="col">
-    <div class="card h-100">
+    <div class="card h-100 {% if (p.stock|int) <= 0 %}oos-card{% endif %}">
       <a href="/product/{{ p.id }}" class="text-decoration-none text-reset">
       {% if p.images and p.images[0] %}
-      <img src="{{ p.images[0] }}" class="card-img-top product-card-img" alt="{{ p.name }}" loading="lazy"/>
+      <img src="{{ p.images[0] }}" class="card-img-top product-card-img {% if (p.stock|int) <= 0 %}oos-img{% endif %}" alt="{{ p.name }}" loading="lazy"/>
       {% endif %}
       <div class="card-body">
         <h5 class="card-title">{{ p.name }}</h5>
@@ -31,11 +31,19 @@
         {% if user and user.role == 'admin' %}
           <p class="card-text">В наличии: {{ p.stock }}</p>
         {% else %}
-          <p class="card-text">Наличие: {{ (p.stock|int) > 0 and 'Есть' or 'Нет' }}</p>
+          {% if (p.stock|int) > 0 %}
+            <p class="card-text"><span class="badge text-bg-success">В наличии</span></p>
+          {% else %}
+            <p class="card-text"><span class="badge text-bg-secondary">Товара нет в наличии</span></p>
+          {% endif %}
         {% endif %}
       </a>
       {% if user %}
-        <button class="btn btn-primary btn-sm add-to-cart" data-id="{{ p.id }}">В корзину</button>
+        {% if (p.stock|int) > 0 %}
+          <button class="btn btn-primary btn-sm add-to-cart" data-id="{{ p.id }}">В корзину</button>
+        {% else %}
+          <button class="btn btn-secondary btn-sm" disabled>Нет в наличии</button>
+        {% endif %}
       {% endif %}
       </div>
     </div>
@@ -71,8 +79,13 @@
         }
       } catch (_) {}
     } else {
-      const t = await res.text();
-      alert('Ошибка: ' + t);
+      try {
+        const t = await res.json();
+        if (res.status === 409 || (t && t.detail === 'Not enough stock')) alert('Товара нет в наличии');
+        else alert('Ошибка: ' + (t.detail || JSON.stringify(t)));
+      } catch (_) {
+        alert('Ошибка добавления в корзину');
+      }
     }
   });
 </script>

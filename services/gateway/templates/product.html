@@ -6,7 +6,7 @@
 <div class="row g-4">
   <div class="col-md-6">
     {% if product.images and product.images[0] %}
-      <img src="{{ product.images[0] }}" class="img-fluid product-hero" alt="{{ product.name }}" loading="lazy"/>
+      <img src="{{ product.images[0] }}" class="img-fluid product-hero {% if (product.stock|int) <= 0 %}oos-img{% endif %}" alt="{{ product.name }}" loading="lazy"/>
     {% else %}
       <div class="placeholder bg-light border d-flex align-items-center justify-content-center" style="width:100%;height:320px;">Нет изображения</div>
     {% endif %}
@@ -22,9 +22,17 @@
     <h2>{{ product.name }}</h2>
     <div class="text-muted">SKU: {{ product.sku }}</div>
     <div class="h4 my-3 price">{{ product.price | price }} ₸</div>
-    <div class="mb-3">Наличие: {{ (product.stock|int) > 0 and 'Есть' or 'Нет' }}</div>
+    {% if (product.stock|int) > 0 %}
+      <div class="mb-3"><span class="badge text-bg-success">В наличии</span></div>
+    {% else %}
+      <div class="mb-3"><span class="badge text-bg-secondary">Товара нет в наличии</span></div>
+    {% endif %}
     {% if user %}
-      <button class="btn btn-primary" id="addToCart">Добавить в корзину</button>
+      {% if (product.stock|int) > 0 %}
+        <button class="btn btn-primary" id="addToCart">Добавить в корзину</button>
+      {% else %}
+        <button class="btn btn-secondary" disabled>Нет в наличии</button>
+      {% endif %}
     {% else %}
       <a class="btn btn-outline-primary" href="/login">Войти, чтобы купить</a>
     {% endif %}
@@ -52,7 +60,10 @@
     btn.addEventListener('click', async () => {
       const res = await fetch('/api/cart/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ product_id: '{{ product.id }}', qty: 1 }) });
       if (res.ok) { if (window.updateCartBadge) window.updateCartBadge(); btn.textContent = 'Добавлено!'; setTimeout(()=>btn.textContent='Добавить в корзину', 1000); }
-      else alert('Не удалось добавить в корзину');
+      else {
+        try { const t = await res.json(); if (res.status===409 || (t && t.detail==='Not enough stock')) alert('Товара нет в наличии'); else alert('Ошибка: ' + (t.detail || JSON.stringify(t))); }
+        catch { alert('Не удалось добавить в корзину'); }
+      }
     });
   }
 </script>

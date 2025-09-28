@@ -198,6 +198,54 @@ services:
 Контейнеризация (каждый сервис)
 - `Dockerfile` — базовый образ `python:3.12-slim`, установка зависимостей через `uv`, копирование кода, `EXPOSE 8000`.
 - `pyproject.toml` — метаданные проекта и список зависимостей для установки в образ.
+
+Kubernetes (демо отказоустойчивости)
+------------------------------------
+В каталоге `k8s/` есть манифесты для развёртывания стека в Kubernetes:
+
+- Postgres + PVC (`k8s/postgres.yaml`) и Job инициализации баз (`authdb`, `catalog`, `orderdb`).
+- Redis (`k8s/redis.yaml`).
+- Сервисы: `auth`, `catalog`, `order`, `cart`, `gateway` (Deployments + Services).
+- Секреты: `k8s/secret.yaml` — пароли/ключи и `DATABASE_URL` для сервисов.
+- Ingress для публикации `gateway`: `k8s/ingress.yaml`.
+
+Реплики для отказоустойчивости:
+- `gateway` и `cart` — `replicas: 2` (статлесс, масштабируются из коробки).
+- `auth`, `catalog`, `order` — `replicas: 1` (так как на старте выполняют миграции Alembic). После первого запуска можно увеличить: `kubectl scale deploy/catalog --replicas=2` и т.д.
+
+Как запустить в minikube
+1) Подключить Docker демона minikube:
+```bash
+eval $(minikube -p minikube docker-env)
+```
+2) Собрать образы локально (из корня репозитория):
+```bash
+docker build -t auth-service:local services/auth_service
+docker build -t catalog-service:local services/catalog_service
+docker build -t order-service:local services/order_service
+docker build -t cart-service:local services/cart_service
+docker build -t gateway:local services/gateway
+```
+3) Применить манифесты:
+```bash
+kubectl apply -f k8s/secret.yaml
+kubectl apply -f k8s/postgres.yaml
+kubectl apply -f k8s/redis.yaml
+kubectl apply -f k8s/auth.yaml -f k8s/catalog.yaml -f k8s/order.yaml -f k8s/cart.yaml -f k8s/gateway.yaml
+```
+4) Доступ к приложению:
+- Порт‑форвард: `kubectl port-forward svc/gateway 8000:8000` → http://localhost:8000
+- Через Ingress (minikube):
+  - Включить: `minikube addons enable ingress`
+  - Применить: `kubectl apply -f k8s/ingress.yaml`
+  - Добавить хост в `/etc/hosts`: `echo "$(minikube ip) shop.local" | sudo tee -a /etc/hosts`
+  - Открыть: http://shop.local
+
+Примечания
+- Для продакшена Postgres/Redis лучше вынести во внешние управляемые сервисы или кластера; текущие манифесты — для демо.
+- Миграции БД сейчас запускаются в entrypoint контейнеров; в проде выносите в `Job`/`initContainer`.
+- Добавьте `resources.requests/limits`, HPA и мониторинг по необходимости.
+
 - `docker-entrypoint.sh` — порядок запуска: ожидание БД → `alembic upgrade head` → `uvicorn`.
 
 Специфика отдельных сервисов

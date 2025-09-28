@@ -10,6 +10,7 @@
 <section class="mb-4">
   <h2>Создать товар</h2>
   <form id="createForm" class="row g-2">
+    <div class="col-12" data-msg="create"></div>
     <div class="col-md-2"><input class="form-control" name="sku" placeholder="SKU" required /></div>
     <div class="col-md-3"><input class="form-control" name="name" placeholder="Название" required /></div>
     <div class="col-md-2"><input class="form-control" name="price" type="number" step="0.01" placeholder="Цена" required /></div>
@@ -44,6 +45,28 @@
 </section>
 
 <script>
+  // helpers
+  function showMsg(container, text, type = 'danger') {
+    if (!container) { alert(text); return; }
+    container.innerHTML = `<div class="alert alert-${type} py-2 mb-2">${text}</div>`;
+  }
+
+  function populateTemplateOptions(selectEl, selectedId = null) {
+    if (!selectEl) return;
+    const tpls = (window._templates || []);
+    selectEl.innerHTML = '';
+    const opt0 = document.createElement('option');
+    opt0.value = '';
+    opt0.textContent = 'Без шаблона';
+    selectEl.appendChild(opt0);
+    tpls.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t.id; opt.textContent = t.name;
+      if (selectedId && String(selectedId) === String(t.id)) opt.selected = true;
+      selectEl.appendChild(opt);
+    });
+  }
+
   async function loadProducts() {
     const res = await fetch('/api/products');
     const items = await res.json();
@@ -64,6 +87,7 @@
           </div>
         </div>
         <form class="row g-2 mt-2 d-none" data-edit-form="${p.id}">
+          <div class="col-12" data-msg="${p.id}"></div>
           <div class="col-md-2"><input class="form-control" name="sku" value="${p.sku}" /></div>
           <div class="col-md-3"><input class="form-control" name="name" value="${p.name}" /></div>
           <div class="col-md-2"><input class="form-control" name="price" type="number" step="0.01" value="${p.price}" /></div>
@@ -72,13 +96,28 @@
             <input class="form-check-input" type="checkbox" name="is_active" ${p.is_active ? 'checked' : ''} />
             <label class="form-check-label">Активен</label>
           </div>
+          <div class="col-md-3">
+            <label class="form-label">Шаблон характеристик</label>
+            <select class="form-select" name="template_id" data-template-select="${p.id}"></select>
+          </div>
           <div class="col-12">
             <label class="form-label small text-muted">Ссылки на изображения (по одному URL в строке)</label>
             <textarea class="form-control" name="image_urls" rows="2">${(p.images||[]).join('\n')}</textarea>
           </div>
+          <div class="col-12">
+            <label class="form-label">Описание</label>
+            <textarea class="form-control" name="description" rows="3">${p.description || ''}</textarea>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Характеристики (JSON)</label>
+            <textarea class="form-control" name="attributes" rows="4">${JSON.stringify(p.attributes || {}, null, 2)}</textarea>
+          </div>
           <div class="col-md-1"><button class="btn btn-success btn-sm" data-action="save" data-id="${p.id}">Сохранить</button></div>
         </form>`;
       root.appendChild(el);
+      // populate template selector for this form
+      const sel = el.querySelector(`[data-template-select="${p.id}"]`);
+      populateTemplateOptions(sel, p.template_id);
     });
   }
 
@@ -103,6 +142,8 @@
       e.preventDefault();
       const form = document.querySelector(`[data-edit-form="${id}"]`);
       const fd = new FormData(form);
+      const msgBox = form.querySelector(`[data-msg="${id}"]`);
+      if (msgBox) msgBox.innerHTML = '';
       const payload = {
         sku: fd.get('sku'),
         name: fd.get('name'),
@@ -111,17 +152,26 @@
         is_active: fd.get('is_active') === 'on',
         images: (fd.get('image_urls') || '').split('\n').map(s => s.trim()).filter(Boolean)
       };
-      // optionally pass description/attributes/template if administrator expanded the form (not visible in edit by default)
+      // include description and attributes if provided
       const desc = fd.get('description');
       if (desc !== null) payload.description = desc;
       try { const attrs = JSON.parse(fd.get('attributes') || '{}'); payload.attributes = attrs; } catch {}
-      const tpl = fd.get('template_id'); if (tpl) payload.template_id = tpl;
+      const tpl = fd.get('template_id'); if (tpl) payload.template_id = tpl; else payload.template_id = null;
       const res = await fetch(`/api/products/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      if (res.ok) loadProducts(); else alert('Ошибка сохранения');
+      if (res.ok) { showMsg(msgBox, 'Сохранено', 'success'); loadProducts(); }
+      else {
+        let message = 'Ошибка сохранения';
+        try {
+          const t = await res.json();
+          if (t && t.detail) message = t.detail;
+        } catch (_) {}
+        if (res.status === 409 && message === 'SKU must be unique') message = 'Товар с таким SKU уже существует';
+        showMsg(msgBox, message, 'danger');
+      }
     } else if (action === 'delete') {
       const res = await fetch(`/api/products/${id}`, { method: 'DELETE' });
       if (res.status === 204) loadProducts(); else alert('Ошибка удаления');
@@ -131,6 +181,8 @@
   document.getElementById('createForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
+    const msgBox = e.target.querySelector('[data-msg="create"]');
+    if (msgBox) msgBox.innerHTML = '';
     const payload = {
       sku: formData.get('sku'),
       name: formData.get('name'),
@@ -152,16 +204,19 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-    if (res.ok) { e.target.reset(); loadProducts(); }
-    else { const t = await res.text(); alert('Ошибка: ' + t); }
+    if (res.ok) { showMsg(msgBox, 'Создано', 'success'); e.target.reset(); loadProducts(); }
+    else {
+      try { const t = await res.json(); showMsg(msgBox, t.detail || JSON.stringify(t)); }
+      catch { const t = await res.text(); showMsg(msgBox, 'Ошибка: ' + t); }
+    }
   });
 
-  loadProducts();
-  // Load templates into selector
+  // Load templates into selector and then products
   async function loadTemplates() {
     const res = await fetch('/api/templates');
     if (!res.ok) return;
     const arr = await res.json();
+    window._templates = arr;
     const sel = document.getElementById('templateSelect');
     arr.forEach(t => {
       const opt = document.createElement('option');
@@ -176,6 +231,8 @@
         ta.value = JSON.stringify(skeleton, null, 2);
       }
     });
+    // after templates loaded populate product list (so edit forms can get template options)
+    await loadProducts();
   }
   loadTemplates();
 </script>

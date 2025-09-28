@@ -28,6 +28,9 @@ class ProductUpdate(BaseModel):
     price: Optional[Decimal] = None
     stock: Optional[int] = None
     is_active: Optional[bool] = None
+    description: Optional[str] = None
+    template_id: Optional[uuid.UUID] = None
+    attributes: Optional[Dict[str, Any]] = None
     images: Optional[list[AnyHttpUrl]] = None
 
 

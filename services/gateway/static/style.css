@@ -7,3 +7,7 @@
 .cart-thumb { width:48px; height:48px; object-fit: contain; background:#fafafa; border:1px solid #eee; border-radius:4px; margin-right:10px; }
 /* Price emphasis */
 .price { font-weight: 600; color:#0d6efd; }
+
+/* Out of stock visuals */
+.oos-img { filter: grayscale(100%); opacity: 0.6; }
+.oos-card { opacity: 0.95; }

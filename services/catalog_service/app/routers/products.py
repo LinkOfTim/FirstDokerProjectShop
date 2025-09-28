@@ -136,6 +136,7 @@ async def create_product(payload: schemas.ProductCreate, session: AsyncSession =
 async def update_product(
     product_id: uuid.UUID, payload: schemas.ProductUpdate, session: AsyncSession = Depends(get_session)
 ):
+    # Load product entity (no relationship lazy-loads in async context)
     product = await session.get(models.Product, product_id)
     if not product:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
@@ -146,9 +147,12 @@ async def update_product(
         setattr(product, field, value)
     # replace images if provided
     if images is not None:
-        # delete old
-        for img in list(product.images):
-            session.delete(img)
+        # delete old without triggering async lazy-load
+        res = await session.execute(
+            select(models.ProductImage).where(models.ProductImage.product_id == product.id)
+        )
+        for img in res.scalars().all():
+            await session.delete(img)
         # add new
         for url in images:
             if url:
@@ -158,7 +162,8 @@ async def update_product(
         await session.commit()
     except IntegrityError:
         await session.rollback()
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Integrity error")
+        # Unify message with create handler for better UX
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="SKU must be unique")
     # load image URLs explicitly
     res = await session.execute(
         select(models.ProductImage.url).where(models.ProductImage.product_id == product.id)
