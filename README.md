@@ -199,52 +199,68 @@ services:
 - `Dockerfile` — базовый образ `python:3.12-slim`, установка зависимостей через `uv`, копирование кода, `EXPOSE 8000`.
 - `pyproject.toml` — метаданные проекта и список зависимостей для установки в образ.
 
-Kubernetes (демо отказоустойчивости)
-------------------------------------
-В каталоге `k8s/` есть манифесты для развёртывания стека в Kubernetes:
+Kubernetes
+----------
+В каталоге `k8s/` лежат манифесты для развёртывания всего стека:
+- Postgres + PVC и Job инициализации баз (`postgres.yaml`)
+- Redis (`redis.yaml`)
+- Сервисы: `auth`, `catalog`, `order`, `cart`, `gateway` (Deployments + Services)
+- Secret с паролями/ключами и `DATABASE_URL` (`secret.yaml`)
+- Ingress для публикации `gateway` (`ingress.yaml`)
 
-- Postgres + PVC (`k8s/postgres.yaml`) и Job инициализации баз (`authdb`, `catalog`, `orderdb`).
-- Redis (`k8s/redis.yaml`).
-- Сервисы: `auth`, `catalog`, `order`, `cart`, `gateway` (Deployments + Services).
-- Секреты: `k8s/secret.yaml` — пароли/ключи и `DATABASE_URL` для сервисов.
-- Ingress для публикации `gateway`: `k8s/ingress.yaml`.
+Реплики и масштабирование:
+- `gateway` и `cart` — `replicas: 2` (статлесс, масштабируются сразу)
+- `auth`, `catalog`, `order` — `replicas: 1` (на старте запускают Alembic). После первого запуска можно увеличить: `kubectl scale deploy/catalog --replicas=2`
 
-Реплики для отказоустойчивости:
-- `gateway` и `cart` — `replicas: 2` (статлесс, масштабируются из коробки).
-- `auth`, `catalog`, `order` — `replicas: 1` (так как на старте выполняют миграции Alembic). После первого запуска можно увеличить: `kubectl scale deploy/catalog --replicas=2` и т.д.
+Быстрый старт (Minikube)
+- Требования: `kubectl`, `minikube`, Docker. Запустите кластер: `minikube start`.
+- Сборка образов:
+  - Вариант А (в докере minikube): `eval $(minikube -p minikube docker-env)` и затем:
+    - `docker build -t auth-service:local services/auth_service`
+    - `docker build -t catalog-service:local services/catalog_service`
+    - `docker build -t order-service:local services/order_service`
+    - `docker build -t cart-service:local services/cart_service`
+    - `docker build -t gateway:local services/gateway`
+  - Вариант Б (собрали локально): загрузите в кластер:
+    - `minikube image load auth-service:local`
+    - `minikube image load catalog-service:local`
+    - `minikube image load order-service:local`
+    - `minikube image load cart-service:local`
+    - `minikube image load gateway:local`
+- Применение манифестов (через kustomize):
+  - `kubectl apply -k k8s`
+  - Подождать готовность: `kubectl wait --for=condition=Available deployment --all --timeout=120s`
+- Доступ к приложению:
+  - Port-forward: `kubectl port-forward svc/gateway 8000:8000` → http://localhost:8000
+  - Ingress:
+    - Включить: `minikube addons enable ingress`
+    - Применить: `kubectl apply -f k8s/ingress.yaml`
+    - Привязать домен: `echo "$(minikube ip) shop.local" | sudo tee -a /etc/hosts`
+    - Открыть: http://shop.local
+- Наблюдение и отладка:
+  - `kubectl get pods,svc,ingress`
+  - `kubectl logs -f deploy/gateway`
+  - `kubectl describe pod <name>`
+- Масштабирование и очистка:
+  - Масштаб: `kubectl scale deploy/gateway --replicas=3`
+  - Удалить все ресурсы: `kubectl delete -k k8s`
 
-Как запустить в minikube
-1) Подключить Docker демона minikube:
-```bash
-eval $(minikube -p minikube docker-env)
-```
-2) Собрать образы локально (из корня репозитория):
-```bash
-docker build -t auth-service:local services/auth_service
-docker build -t catalog-service:local services/catalog_service
-docker build -t order-service:local services/order_service
-docker build -t cart-service:local services/cart_service
-docker build -t gateway:local services/gateway
-```
-3) Применить манифесты:
-```bash
-kubectl apply -f k8s/secret.yaml
-kubectl apply -f k8s/postgres.yaml
-kubectl apply -f k8s/redis.yaml
-kubectl apply -f k8s/auth.yaml -f k8s/catalog.yaml -f k8s/order.yaml -f k8s/cart.yaml -f k8s/gateway.yaml
-```
-4) Доступ к приложению:
-- Порт‑форвард: `kubectl port-forward svc/gateway 8000:8000` → http://localhost:8000
-- Через Ingress (minikube):
-  - Включить: `minikube addons enable ingress`
-  - Применить: `kubectl apply -f k8s/ingress.yaml`
-  - Добавить хост в `/etc/hosts`: `echo "$(minikube ip) shop.local" | sudo tee -a /etc/hosts`
-  - Открыть: http://shop.local
+Make команды (Kubernetes)
+- `make k8s` — собрать образы в Docker minikube и применить `k8s/`
+- `make k8s-build` — собрать образы прямо в Docker демоне minikube
+- `make k8s-load` — загрузить уже собранные локальные образы в minikube
+- `make k8s-apply` — применить манифесты (`kubectl apply -k k8s`)
+- `make k8s-wait` — дождаться готовности всех деплойментов
+- `make ingress-enable` — включить Ingress addon, применить `ingress.yaml`, подсказать строку для `/etc/hosts`
+- `make k8s-port [PORT=8000]` — порт‑форвард gateway на localhost:PORT
+- `make k8s-logs [DEPLOY=gateway]` — логи деплоймента
+- `make k8s-scale [DEPLOY=gateway REPLICAS=3]` — масштабировать деплоймент
+- `make k8s-down` — удалить все ресурсы из `k8s/`
 
 Примечания
-- Для продакшена Postgres/Redis лучше вынести во внешние управляемые сервисы или кластера; текущие манифесты — для демо.
-- Миграции БД сейчас запускаются в entrypoint контейнеров; в проде выносите в `Job`/`initContainer`.
-- Добавьте `resources.requests/limits`, HPA и мониторинг по необходимости.
+- Для продакшена Postgres/Redis лучше вынести во внешние управляемые сервисы/кластеры; текущие манифесты — для демо
+- Миграции БД сейчас запускаются в entrypoint контейнеров; в прод окружении выносите в `Job`/`initContainer`
+- Добавьте `resources.requests/limits`, HPA и мониторинг при необходимости
 
 - `docker-entrypoint.sh` — порядок запуска: ожидание БД → `alembic upgrade head` → `uvicorn`.
 

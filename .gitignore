@@ -64,3 +64,23 @@ docs/_build/
 *.pid
 docker-compose.override.yml
 alembic/__pycache__/
+
+### Kubernetes / local cluster
+# Local overrides/generator outputs
+k8s/*.local.yaml
+k8s/*.generated.yaml
+k8s/overrides/
+
+### Local binaries and tooling
+# If you download helper binaries into repo root
+/kubectl
+/minikube*
+.devcontainer/
+
+### Logs and dumps
+*.log
+*.sql
+*.dump
+*.tar
+*.tar.gz
+*.tgz
