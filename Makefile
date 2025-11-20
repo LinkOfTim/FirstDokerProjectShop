@@ -3,6 +3,7 @@ SHELL := /bin/bash
 PORT ?= 8000
 DEPLOY ?= gateway
 REPLICAS ?= 2
+DOCKER_BUILD_ARGS ?=
 
 IMAGES := \
   auth-service:local \
@@ -17,22 +18,22 @@ k8s:
 	if ! command -v minikube >/dev/null 2>&1; then echo "minikube is required"; exit 1; fi; \
 	minikube status >/dev/null 2>&1 || minikube start; \
 	eval $$(minikube -p minikube docker-env); \
-	docker build -t auth-service:local services/auth_service; \
-	docker build -t catalog-service:local services/catalog_service; \
-	docker build -t order-service:local services/order_service; \
-	docker build -t cart-service:local services/cart_service; \
-	docker build -t gateway:local services/gateway; \
+	docker build $(DOCKER_BUILD_ARGS) -t auth-service:local services/auth_service; \
+	docker build $(DOCKER_BUILD_ARGS) -t catalog-service:local services/catalog_service; \
+	docker build $(DOCKER_BUILD_ARGS) -t order-service:local services/order_service; \
+	docker build $(DOCKER_BUILD_ARGS) -t cart-service:local services/cart_service; \
+	docker build $(DOCKER_BUILD_ARGS) -t gateway:local services/gateway; \
 	kubectl apply -k k8s; \
 	echo "Applied manifests. Use 'make k8s-port' or enable Ingress: 'minikube addons enable ingress && kubectl apply -f k8s/ingress.yaml'";
 
 # Build all service images with host Docker (useful for Docker Compose)
 images:
 	set -euo pipefail; \
-	docker build -t auth-service:local services/auth_service; \
-	docker build -t catalog-service:local services/catalog_service; \
-	docker build -t order-service:local services/order_service; \
-	docker build -t cart-service:local services/cart_service; \
-	docker build -t gateway:local services/gateway
+	docker build $(DOCKER_BUILD_ARGS) -t auth-service:local services/auth_service; \
+	docker build $(DOCKER_BUILD_ARGS) -t catalog-service:local services/catalog_service; \
+	docker build $(DOCKER_BUILD_ARGS) -t order-service:local services/order_service; \
+	docker build $(DOCKER_BUILD_ARGS) -t cart-service:local services/cart_service; \
+	docker build $(DOCKER_BUILD_ARGS) -t gateway:local services/gateway
 
 # Build images directly into Minikube's Docker daemon
 k8s-build:
@@ -68,9 +69,16 @@ k8s-wait:
 k8s-down:
 	kubectl delete -k k8s || true
 
-# Port-forward gateway service to localhost:8000
+# Port-forward a ready gateway Pod to localhost:PORT (defaults to 8000)
+# Using a Pod avoids occasional flakes with Service port-forwarding.
 k8s-port:
-	kubectl port-forward svc/gateway $(PORT):8000
+	set -euo pipefail; \
+	POD=$$(kubectl get pods -l app=gateway \
+	  -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}' \
+	  | awk '{print $$1}'); \
+	if [ -z "$$POD" ]; then echo "No running gateway pods found"; exit 1; fi; \
+	echo "Port-forwarding $$POD to localhost:$(PORT)"; \
+	kubectl port-forward pod/$$POD $(PORT):8000
 
 # Convenience: docker compose up/down
 compose-up:
@@ -85,11 +93,11 @@ recreate:
 	if ! command -v minikube >/dev/null 2>&1; then echo "minikube is required"; exit 1; fi; \
 	minikube status >/dev/null 2>&1 || minikube start; \
 	eval $$(minikube -p minikube docker-env); \
-	docker build -t auth-service:local services/auth_service; \
-	docker build -t catalog-service:local services/catalog_service; \
-	docker build -t order-service:local services/order_service; \
-	docker build -t cart-service:local services/cart_service; \
-	docker build -t gateway:local services/gateway; \
+	docker build $(DOCKER_BUILD_ARGS) -t auth-service:local services/auth_service; \
+	docker build $(DOCKER_BUILD_ARGS) -t catalog-service:local services/catalog_service; \
+	docker build $(DOCKER_BUILD_ARGS) -t order-service:local services/order_service; \
+	docker build $(DOCKER_BUILD_ARGS) -t cart-service:local services/cart_service; \
+	docker build $(DOCKER_BUILD_ARGS) -t gateway:local services/gateway; \
 	kubectl apply -k k8s; \
 	kubectl rollout restart deployment auth catalog order cart gateway; \
 	for d in auth catalog order cart gateway; do \
@@ -97,6 +105,15 @@ recreate:
 	  kubectl rollout status deployment/$$d --timeout=120s; \
 	done; \
 	echo "All services recreated."
+
+# Pre-cache base images in Minikube to avoid network pulls during build
+.PHONY: k8s-cache
+k8s-cache:
+	set -euo pipefail; \
+	if ! command -v minikube >/dev/null 2>&1; then echo "minikube is required"; exit 1; fi; \
+	minikube status >/dev/null 2>&1 || minikube start; \
+	echo "Caching base image python:3.12-slim in Minikube..."; \
+	minikube cache add python:3.12-slim || true
 
 # Tail logs from a deployment (DEPLOY?=gateway)
 k8s-logs:
