@@ -666,6 +666,9 @@ async def api_admin_stats(token: Optional[str] = Depends(get_token_from_cookie))
     except httpx.RequestError:
         products, orders = [], []
 
+    # drop canceled orders from stats
+    orders = [o for o in orders if o.get("status") != "canceled"]
+
     # products stats
     total_products = len(products)
     active_products = sum(1 for p in products if p.get("is_active", True))

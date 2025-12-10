@@ -1,0 +1,6 @@
+- Сервер catalog-db, база catalog, порт 5432, user/pass postgres/postgres
+- Сервер auth-db, база authdb, порт 5432, user/pass postgres/postgres
+- Сервер order-db, база orderdb, порт 5432, user/pass postgres/postgres
+
+Подключение к БД
+docker run --rm -p 8080:8080 --network catalog-service_default adminer
