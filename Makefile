@@ -72,14 +72,8 @@ k8s-down:
 # Port-forward a ready gateway Pod to localhost:PORT (defaults to 8000)
 # Using a Pod avoids occasional flakes with Service port-forwarding.
 k8s-port:
-	set -euo pipefail; \
-	POD=$$(kubectl get pods -l app=gateway \
-	  -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}' \
-	  | awk '{print $$1}'); \
-	if [ -z "$$POD" ]; then echo "No running gateway pods found"; exit 1; fi; \
-	echo "Port-forwarding $$POD to localhost:$(PORT)"; \
-	kubectl port-forward pod/$$POD $(PORT):8000
-
+	kubectl rollout status deployment/gateway --timeout=120s
+	kubectl port-forward svc/gateway $(PORT):8000
 # Convenience: docker compose up/down
 compose-up:
 	docker compose up -d --build
@@ -99,7 +93,8 @@ recreate:
 	docker build $(DOCKER_BUILD_ARGS) -t cart-service:local services/cart_service; \
 	docker build $(DOCKER_BUILD_ARGS) -t gateway:local services/gateway; \
 	kubectl apply -k k8s; \
-	kubectl rollout restart deployment auth catalog order cart gateway; \
+	kubectl rollout restart deployment $(DEPLOYS)
+	kubectl rollout status deployment --timeout=180s
 	for d in auth catalog order cart gateway; do \
 	  echo "Waiting for $$d rollout..."; \
 	  kubectl rollout status deployment/$$d --timeout=120s; \
@@ -117,7 +112,7 @@ k8s-cache:
 
 # Tail logs from a deployment (DEPLOY?=gateway)
 k8s-logs:
-	kubectl logs -f deploy/$(DEPLOY)
+	kubectl logs -f deploy/$(DEPLOY) --all-containers=true
 
 # Scale a deployment (DEPLOY, REPLICAS)
 k8s-scale:
